@@ -5,6 +5,7 @@ import { useSocket } from "@/hooks/useSocket";
 import { useWhatsApp } from "@/hooks/useWhatsApp";
 import { useChats } from "@/hooks/useChats";
 import { useMessages } from "@/hooks/useMessages";
+import { getSocket } from "@/lib/socket";
 import * as api from "@/lib/api";
 import QRScreen from "@/components/QRScreen";
 import ChatSidebar from "@/components/ChatSidebar";
@@ -28,14 +29,25 @@ export default function Home() {
     logout,
   } = useWhatsApp();
 
-  const { chats } = useChats();
+  const { chats, markRead } = useChats();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const { messages, isLoading: isLoadingMessages, hasMore, loadMore } =
+  const { messages, isLoading: isLoadingMessages, hasMore, loadMore, appendMessage } =
     useMessages(activeChatId);
 
-  // Find the active chat object
+  // Find the active chat object (or fallback if newly initiated)
   const activeChat = useMemo(
-    () => chats.find((c) => c.id === activeChatId) || null,
+    () =>
+      chats.find((c) => c.id === activeChatId) ||
+      (activeChatId
+        ? {
+            id: activeChatId,
+            name: activeChatId.replace("@s.whatsapp.net", "").replace("@g.us", ""),
+            lastMessage: "",
+            lastMessageTimestamp: Math.floor(Date.now() / 1000),
+            unreadCount: 0,
+            isGroup: activeChatId.endsWith("@g.us"),
+          }
+        : null),
     [chats, activeChatId]
   );
 
@@ -43,17 +55,26 @@ export default function Home() {
     async (text: string) => {
       if (!activeChatId) return;
       try {
-        await api.sendMessage(activeChatId, text);
+        const res = await api.sendMessage(activeChatId, text);
+        if (res.success && res.data) {
+          appendMessage(res.data);
+        }
       } catch (err) {
         console.error("Failed to send message:", err);
       }
     },
-    [activeChatId]
+    [activeChatId, appendMessage]
   );
 
-  const handleSelectChat = useCallback((chatId: string) => {
-    setActiveChatId(chatId);
-  }, []);
+  const handleSelectChat = useCallback(
+    (chatId: string) => {
+      setActiveChatId(chatId);
+      // Optimistically clear badge and tell backend to mark read on WhatsApp
+      markRead(chatId);
+      getSocket().emit("message:read", chatId);
+    },
+    [markRead]
+  );
 
   const handleBack = useCallback(() => {
     setActiveChatId(null);

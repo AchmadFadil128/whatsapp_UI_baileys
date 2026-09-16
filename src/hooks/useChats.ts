@@ -61,5 +61,11 @@ export function useChats() {
     };
   }, [fetchChats]);
 
-  return { chats, isLoading, refetch: fetchChats };
+  const markRead = useCallback((chatId: string) => {
+    setChats((prev) =>
+      prev.map((c) => (c.id === chatId ? { ...c, unreadCount: 0 } : c))
+    );
+  }, []);
+
+  return { chats, isLoading, refetch: fetchChats, markRead };
 }

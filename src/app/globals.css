@@ -514,6 +514,118 @@ body {
   color: var(--accent-blue);
 }
 
+/* ─── Media Messages ───────────────────────────────────────────── */
+.message-media {
+  margin: -4px -6px 4px;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.message-image {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: opacity 0.3s ease;
+}
+
+.message-image.loading {
+  opacity: 0;
+  position: absolute;
+  pointer-events: none;
+}
+
+.message-image.loaded {
+  opacity: 1;
+  position: relative;
+}
+
+.media-placeholder {
+  width: 240px;
+  height: 180px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.media-error {
+  background: rgba(255, 60, 60, 0.08);
+  color: var(--text-secondary);
+}
+
+.media-error span:first-child {
+  font-size: 2rem;
+}
+
+.media-caption {
+  padding: 6px 6px 0;
+  font-size: 0.875rem;
+}
+
+/* ─── Lightbox ─────────────────────────────────────────────────── */
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  animation: lightbox-fade-in 0.2s ease;
+}
+
+@keyframes lightbox-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  color: #fff;
+  font-size: 1.3rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  z-index: 10000;
+}
+
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.lightbox-image {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 4px;
+  cursor: default;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+
 /* ─── Date Separator ───────────────────────────────────────────── */
 .date-separator {
   display: flex;

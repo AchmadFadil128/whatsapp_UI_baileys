@@ -181,11 +181,30 @@ export default function ChatSidebar({
               fontSize: "0.875rem",
             }}
           >
-            {search
-              ? "No chats found"
-              : connectionState === "connected"
-              ? "No chats yet — waiting for sync..."
-              : "Connect to see your chats"}
+            {search.trim() ? (
+              <div>
+                <p style={{ marginBottom: "12px" }}>No chats found</p>
+                {/^[0-9+]+$/.test(search.trim()) && (
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      let cleaned = search.trim().replace(/\D/g, "");
+                      if (cleaned.startsWith("0")) cleaned = "62" + cleaned.slice(1);
+                      const jid = cleaned + "@s.whatsapp.net";
+                      onSelectChat(jid);
+                      setSearch("");
+                    }}
+                    style={{ fontSize: "0.85rem", width: "100%" }}
+                  >
+                    💬 Chat with +{search.trim().replace(/\D/g, "")}
+                  </button>
+                )}
+              </div>
+            ) : connectionState === "connected" ? (
+              "No chats yet — waiting for sync..."
+            ) : (
+              "Connect to see your chats"
+            )}
           </div>
         ) : (
           filteredChats.map((chat) => (

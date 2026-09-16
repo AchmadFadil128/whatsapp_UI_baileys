@@ -3,14 +3,17 @@ import makeWASocket, {
   makeCacheableSignalKeyStore,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
   type WASocket,
   type WAMessage,
   type BaileysEventMap,
   type ConnectionState,
+  type proto,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import { EventEmitter } from "events";
 import path from "path";
+import fs from "fs";
 import { createLogger } from "@/server/lib/logger";
 import { store } from "@/server/services/store";
 import { transformMessage, normalizeJid, mapMessageStatus } from "@/server/lib/message-transformer";
@@ -42,6 +45,8 @@ class WhatsAppService extends EventEmitter {
   private connectionState: WhatsAppConnectionState = "disconnected";
   private reconnectAttempts = 0;
   private currentQrCode: string | null = null;
+
+  private rawMessages = new Map<string, WAMessage>();
 
   getConnectionState(): WhatsAppConnectionState {
     return this.connectionState;
@@ -82,11 +87,9 @@ class WhatsAppService extends EventEmitter {
         browser: BROWSER_IDENTITY,
         generateHighQualityLinkPreview: true,
         getMessage: async (key) => {
-          // Required for message retry / decrypt
-          if (!key.remoteJid || !key.id) return undefined;
-          const chatId = normalizeJid(key.remoteJid);
-          const msg = store.getMessage(chatId, key.id);
-          return msg ? undefined : undefined;
+          if (!key.id) return undefined;
+          const raw = this.rawMessages.get(key.id);
+          return raw?.message ?? undefined;
         },
       });
 
@@ -173,6 +176,7 @@ class WhatsAppService extends EventEmitter {
     }
     this.reconnectAttempts = 0;
     this.currentQrCode = null;
+    this.clearAuthState();
     store.clear();
     this.updateState("logged_out");
   }
@@ -186,12 +190,19 @@ class WhatsAppService extends EventEmitter {
     }
 
     try {
-      const sent = await this.socket.sendMessage(chatId, { text });
+      const targetJid = chatId.includes("@")
+        ? chatId
+        : `${chatId}@s.whatsapp.net`;
+
+      const sent = await this.socket.sendMessage(targetJid, { text });
       if (sent) {
+        if (sent.key?.id && sent.message) {
+          this.rawMessages.set(sent.key.id, sent);
+        }
         const transformed = transformMessage(sent);
         if (transformed) {
           store.addMessage(transformed);
-          store.updateChatLastMessage(chatId, transformed);
+          store.updateChatLastMessage(transformed.chatId, transformed);
           this.emit("message:sent", { message: transformed });
           return transformed;
         }
@@ -200,6 +211,45 @@ class WhatsAppService extends EventEmitter {
     } catch (error) {
       logger.error(error, "Failed to send message");
       throw error;
+    }
+  }
+
+  /**
+   * Returns the raw WAMessage for a given message ID.
+   */
+  getRawMessage(messageId: string): WAMessage | undefined {
+    return this.rawMessages.get(messageId);
+  }
+
+  /**
+   * Downloads media from a message, returning the buffer and mimetype.
+   */
+  async downloadMedia(
+    messageId: string
+  ): Promise<{ buffer: Buffer; mimetype: string } | null> {
+    const raw = this.rawMessages.get(messageId);
+    if (!raw) {
+      logger.warn({ messageId }, "Raw message not found for media download");
+      return null;
+    }
+
+    try {
+      const buffer = await downloadMediaMessage(raw, "buffer", {});
+
+      // Extract mimetype from the message content
+      const content =
+        raw.message?.imageMessage ||
+        raw.message?.videoMessage ||
+        raw.message?.audioMessage ||
+        raw.message?.documentMessage ||
+        raw.message?.stickerMessage;
+
+      const mimetype = content?.mimetype || "application/octet-stream";
+
+      return { buffer: buffer as Buffer, mimetype };
+    } catch (error) {
+      logger.error(error, "Failed to download media");
+      return null;
     }
   }
 
@@ -250,6 +300,7 @@ class WhatsAppService extends EventEmitter {
 
       if (statusCode === DisconnectReason.loggedOut) {
         logger.info("Logged out from WhatsApp");
+        this.clearAuthState();
         this.updateState("logged_out");
         this.socket = null;
         store.clear();
@@ -285,6 +336,9 @@ class WhatsAppService extends EventEmitter {
     const { messages, type } = event;
 
     for (const raw of messages) {
+      if (raw.key?.id && raw.message) {
+        this.rawMessages.set(raw.key.id, raw);
+      }
       const message = transformMessage(raw);
       if (!message) continue;
 
@@ -331,6 +385,7 @@ class WhatsAppService extends EventEmitter {
         isGroup: chatId.endsWith("@g.us"),
       };
       store.upsertChat(chat);
+      this.emit("chat:updated", { chat });
     }
   }
 
@@ -369,6 +424,7 @@ class WhatsAppService extends EventEmitter {
       if (chat && (raw.name || raw.notify)) {
         chat.name = raw.name || raw.notify || chat.name;
         store.upsertChat(chat);
+        this.emit("chat:updated", { chat });
       }
     }
   }
@@ -432,15 +488,14 @@ class WhatsAppService extends EventEmitter {
 
     // Process messages
     if (syncMessages) {
-      for (const syncMsg of syncMessages) {
-        const rawMessages = (syncMsg as unknown as { messages: WAMessage[] }).messages;
-        if (!rawMessages) continue;
-        for (const raw of rawMessages) {
-          const message = transformMessage(raw);
-          if (message) {
-            store.addMessage(message);
-            store.updateChatLastMessage(message.chatId, message);
-          }
+      for (const raw of syncMessages) {
+        if (raw.key?.id && raw.message) {
+          this.rawMessages.set(raw.key.id, raw);
+        }
+        const message = transformMessage(raw);
+        if (message) {
+          store.addMessage(message);
+          store.updateChatLastMessage(message.chatId, message);
         }
       }
     }
@@ -469,6 +524,18 @@ class WhatsAppService extends EventEmitter {
     }
   }
 
+  private clearAuthState(): void {
+    try {
+      if (fs.existsSync(AUTH_DIR)) {
+        fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+        fs.mkdirSync(AUTH_DIR, { recursive: true });
+        logger.info("Cleared auth directory");
+      }
+    } catch (err) {
+      logger.error(err, "Failed to clear auth directory");
+    }
+  }
+
   private updateState(
     state: WhatsAppConnectionState,
     qrCode?: string,
@@ -482,4 +549,14 @@ class WhatsAppService extends EventEmitter {
 }
 
 // Singleton instance
-export const whatsappService = new WhatsAppService();
+// Attach to globalThis for Next.js bundler compatibility
+const globalForWhatsApp = globalThis as unknown as {
+  __whatsappService?: WhatsAppService;
+};
+
+export const whatsappService =
+  globalForWhatsApp.__whatsappService ?? new WhatsAppService();
+
+if (!globalForWhatsApp.__whatsappService) {
+  globalForWhatsApp.__whatsappService = whatsappService;
+}

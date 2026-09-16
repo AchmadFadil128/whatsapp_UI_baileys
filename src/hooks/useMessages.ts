@@ -106,5 +106,12 @@ export function useMessages(chatId: string | null) {
     }
   }, [chatId, isLoading, hasMore, messages]);
 
-  return { messages, isLoading, hasMore, loadMore };
+  const appendMessage = useCallback((msg: Message) => {
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === msg.id)) return prev;
+      return [...prev, msg];
+    });
+  }, []);
+
+  return { messages, isLoading, hasMore, loadMore, appendMessage };
 }

@@ -42,6 +42,8 @@ export type MessageType =
   | "sticker"
   | "location"
   | "contact"
+  | "reaction"
+  | "poll"
   | "unknown";
 
 export type MessageStatus =
