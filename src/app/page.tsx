@@ -146,7 +146,7 @@ export default function Home() {
 
       {/* Chat Sidebar */}
       <ChatSidebar
-        chats={chats}
+        chats={aliasedChats}
         activeChatId={activeChatId}
         connectionState={connectionState}
         onSelectChat={handleSelectChat}
