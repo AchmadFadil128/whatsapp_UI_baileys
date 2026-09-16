@@ -2,7 +2,7 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
+      - "3321:3000"
     env_file:
       - .env.dockhand
     depends_on:
