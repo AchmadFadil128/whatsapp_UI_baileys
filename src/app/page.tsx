@@ -5,16 +5,18 @@ import { useSocket } from "@/hooks/useSocket";
 import { useWhatsApp } from "@/hooks/useWhatsApp";
 import { useChats } from "@/hooks/useChats";
 import { useMessages } from "@/hooks/useMessages";
+import { useNotifications } from "@/hooks/useNotifications";
 import { getSocket } from "@/lib/socket";
 import * as api from "@/lib/api";
 import QRScreen from "@/components/QRScreen";
 import ChatSidebar from "@/components/ChatSidebar";
 import ChatWindow from "@/components/ChatWindow";
+import NotificationToastContainer from "@/components/NotificationToast";
 
 /**
  * Main page — orchestrates the entire WhatsApp client UI.
  * Shows QR/connection screen when disconnected, and the
- * full chat interface when connected.
+ * full chat interface when connected with notifications.
  */
 export default function Home() {
   useSocket();
@@ -33,6 +35,30 @@ export default function Home() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const { messages, isLoading: isLoadingMessages, hasMore, loadMore, appendMessage } =
     useMessages(activeChatId);
+
+  const handleSelectChat = useCallback(
+    (chatId: string) => {
+      setActiveChatId(chatId);
+      // Optimistically clear badge and tell backend to mark read on WhatsApp
+      markRead(chatId);
+      getSocket().emit("message:read", chatId);
+    },
+    [markRead]
+  );
+
+  const {
+    soundEnabled,
+    setSoundEnabled,
+    permission: desktopPermission,
+    requestDesktopPermission,
+    toasts,
+    dismissToast,
+    playNotificationSound,
+  } = useNotifications({
+    activeChatId,
+    chats,
+    onSelectChat: handleSelectChat,
+  });
 
   // Find the active chat object (or fallback if newly initiated)
   const activeChat = useMemo(
@@ -66,16 +92,6 @@ export default function Home() {
     [activeChatId, appendMessage]
   );
 
-  const handleSelectChat = useCallback(
-    (chatId: string) => {
-      setActiveChatId(chatId);
-      // Optimistically clear badge and tell backend to mark read on WhatsApp
-      markRead(chatId);
-      getSocket().emit("message:read", chatId);
-    },
-    [markRead]
-  );
-
   const handleBack = useCallback(() => {
     setActiveChatId(null);
   }, []);
@@ -99,6 +115,13 @@ export default function Home() {
 
   return (
     <div className="app-container">
+      {/* In-app Toast Notifications */}
+      <NotificationToastContainer
+        toasts={toasts}
+        onDismiss={dismissToast}
+        onSelectChat={handleSelectChat}
+      />
+
       {/* Connection status bar */}
       {connectionState === "reconnecting" && (
         <div
@@ -118,6 +141,11 @@ export default function Home() {
         onSelectChat={handleSelectChat}
         onDisconnect={disconnect}
         onLogout={logout}
+        soundEnabled={soundEnabled}
+        onToggleSound={() => setSoundEnabled(!soundEnabled)}
+        desktopPermission={desktopPermission}
+        onRequestDesktopPermission={requestDesktopPermission}
+        onTestNotification={playNotificationSound}
       />
 
       {/* Chat Window */}

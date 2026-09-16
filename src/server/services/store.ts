@@ -1,82 +1,90 @@
-import fs from "fs";
-import path from "path";
-import type { Chat, Message, Contact } from "@/types";
+import { prisma } from "@/server/db/client";
+import type { Chat, Message, Contact, MessageStatus, MessageType } from "@/types";
 import { createLogger } from "@/server/lib/logger";
 
 const logger = createLogger("store");
-const STORE_FILE = path.join(process.cwd(), "data", "whatsapp", "store.json");
 
 /**
- * File-backed store for chats, messages, and contacts.
- * Preserves synced data across server restarts so the chat list
- * is immediately available without waiting for full WhatsApp resync.
+ * PostgreSQL-backed Store for chats, messages, contacts, and media.
+ * Maintains an in-memory cache of chats and contacts for sub-millisecond lookups
+ * while persisting all operations transactionally to PostgreSQL.
  */
 class Store {
   private chats: Map<string, Chat> = new Map();
-  private messages: Map<string, Message[]> = new Map();
   private contacts: Map<string, Contact> = new Map();
-  private saveTimeout: NodeJS.Timeout | null = null;
+  private isInitialized = false;
 
   constructor() {
-    this.loadFromDisk();
+    this.init().catch((err) => {
+      logger.error(err, "Failed to initialize store from database");
+    });
   }
 
-  private loadFromDisk(): void {
+  /**
+   * Loads initial state (chats & contacts) from PostgreSQL into memory cache.
+   */
+  async init(): Promise<void> {
     try {
-      if (fs.existsSync(STORE_FILE)) {
-        const raw = fs.readFileSync(STORE_FILE, "utf-8");
-        const data = JSON.parse(raw);
-        if (Array.isArray(data.chats)) {
-          for (const c of data.chats) this.chats.set(c.id, c);
-        }
-        if (Array.isArray(data.contacts)) {
-          for (const c of data.contacts) this.contacts.set(c.id, c);
-        }
-        if (data.messages && typeof data.messages === "object") {
-          for (const [chatId, msgs] of Object.entries(data.messages)) {
-            if (Array.isArray(msgs)) this.messages.set(chatId, msgs as Message[]);
-          }
-        }
-        logger.info({ chats: this.chats.size }, "Loaded store from disk");
+      const dbChats = await prisma.chat.findMany();
+      for (const c of dbChats) {
+        this.chats.set(c.id, {
+          id: c.id,
+          name: c.name,
+          lastMessage: c.lastMessage || "",
+          lastMessageTimestamp: Number(c.lastMessageTimestamp),
+          unreadCount: c.unreadCount,
+          isGroup: c.isGroup,
+        });
       }
-    } catch (err) {
-      logger.warn(err, "Failed to load store from disk, starting empty");
-    }
-  }
 
-  private saveToDisk(): void {
-    if (this.saveTimeout) return;
-    this.saveTimeout = setTimeout(() => {
-      this.saveTimeout = null;
-      try {
-        const dir = path.dirname(STORE_FILE);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        const messagesObj: Record<string, Message[]> = {};
-        for (const [chatId, msgs] of this.messages.entries()) {
-          messagesObj[chatId] = msgs.slice(-100);
-        }
-        const data = {
-          chats: Array.from(this.chats.values()),
-          contacts: Array.from(this.contacts.values()),
-          messages: messagesObj,
-        };
-        fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), "utf-8");
-      } catch (err) {
-        logger.error(err, "Failed to save store to disk");
+      const dbContacts = await prisma.contact.findMany();
+      for (const c of dbContacts) {
+        this.contacts.set(c.id, {
+          id: c.id,
+          name: c.name || undefined,
+          pushName: c.pushName || undefined,
+        });
       }
-    }, 500);
+
+      this.isInitialized = true;
+      logger.info(
+        { chats: this.chats.size, contacts: this.contacts.size },
+        "Loaded store from PostgreSQL"
+      );
+    } catch (err) {
+      logger.error(err, "Error loading store from PostgreSQL");
+    }
   }
 
   // ─── Chats ────────────────────────────────────────────────
 
-  upsertChat(chat: Chat): void {
+  async upsertChat(chat: Chat): Promise<void> {
     const existing = this.chats.get(chat.id);
-    if (existing) {
-      this.chats.set(chat.id, { ...existing, ...chat });
-    } else {
-      this.chats.set(chat.id, chat);
+    const updated = existing ? { ...existing, ...chat } : chat;
+    this.chats.set(chat.id, updated);
+
+    try {
+      await prisma.chat.upsert({
+        where: { id: chat.id },
+        create: {
+          id: chat.id,
+          name: chat.name,
+          lastMessage: chat.lastMessage || null,
+          lastMessageTimestamp: BigInt(chat.lastMessageTimestamp || 0),
+          unreadCount: chat.unreadCount || 0,
+          isGroup: Boolean(chat.isGroup),
+        },
+        update: {
+          name: chat.name,
+          lastMessage: chat.lastMessage || null,
+          lastMessageTimestamp: BigInt(chat.lastMessageTimestamp || 0),
+          unreadCount: chat.unreadCount || 0,
+          isGroup: Boolean(chat.isGroup),
+        },
+      });
+    } catch (err) {
+      logger.error({ err, chatId: chat.id }, "Failed to upsert chat to database");
     }
-    this.saveToDisk();
   }
 
   getChat(chatId: string): Chat | undefined {
@@ -89,93 +97,242 @@ class Store {
     );
   }
 
-  updateChatLastMessage(chatId: string, message: Message): void {
+  async getChatsFromDb(): Promise<Chat[]> {
+    try {
+      const dbChats = await prisma.chat.findMany({
+        orderBy: { lastMessageTimestamp: "desc" },
+      });
+      return dbChats.map((c) => ({
+        id: c.id,
+        name: c.name,
+        lastMessage: c.lastMessage || "",
+        lastMessageTimestamp: Number(c.lastMessageTimestamp),
+        unreadCount: c.unreadCount,
+        isGroup: c.isGroup,
+      }));
+    } catch (err) {
+      logger.error(err, "Failed to query chats from database, fallback to cache");
+      return this.getChats();
+    }
+  }
+
+  async updateChatLastMessage(chatId: string, message: Message): Promise<void> {
+    const lastMessageText = message.text || `[${message.type}]`;
+    const lastTimestamp = message.timestamp;
+
     const chat = this.chats.get(chatId);
+    let unreadCount = 0;
+
     if (chat) {
-      chat.lastMessage = message.text || `[${message.type}]`;
-      chat.lastMessageTimestamp = message.timestamp;
+      chat.lastMessage = lastMessageText;
+      chat.lastMessageTimestamp = lastTimestamp;
       if (!message.fromMe) {
         chat.unreadCount = (chat.unreadCount || 0) + 1;
       }
+      unreadCount = chat.unreadCount;
     } else {
+      unreadCount = message.fromMe ? 0 : 1;
       this.chats.set(chatId, {
         id: chatId,
         name: message.pushName || chatId.split("@")[0],
-        lastMessage: message.text || `[${message.type}]`,
-        lastMessageTimestamp: message.timestamp,
-        unreadCount: message.fromMe ? 0 : 1,
+        lastMessage: lastMessageText,
+        lastMessageTimestamp: lastTimestamp,
+        unreadCount,
         isGroup: chatId.endsWith("@g.us"),
       });
     }
-    this.saveToDisk();
+
+    try {
+      await prisma.chat.upsert({
+        where: { id: chatId },
+        create: {
+          id: chatId,
+          name: message.pushName || chatId.split("@")[0],
+          lastMessage: lastMessageText,
+          lastMessageTimestamp: BigInt(lastTimestamp),
+          unreadCount,
+          isGroup: chatId.endsWith("@g.us"),
+        },
+        update: {
+          lastMessage: lastMessageText,
+          lastMessageTimestamp: BigInt(lastTimestamp),
+          unreadCount,
+        },
+      });
+    } catch (err) {
+      logger.error({ err, chatId }, "Failed to update chat last message in database");
+    }
   }
 
-  markChatRead(chatId: string): void {
+  async markChatRead(chatId: string): Promise<void> {
     const chat = this.chats.get(chatId);
     if (chat) {
       chat.unreadCount = 0;
-      this.saveToDisk();
+    }
+
+    try {
+      await prisma.chat.updateMany({
+        where: { id: chatId },
+        data: { unreadCount: 0 },
+      });
+    } catch (err) {
+      logger.error({ err, chatId }, "Failed to mark chat as read in database");
     }
   }
 
   // ─── Messages ─────────────────────────────────────────────
 
-  addMessage(message: Message): void {
-    const chatMessages = this.messages.get(message.chatId) || [];
-    const existingIndex = chatMessages.findIndex((m) => m.id === message.id);
-    if (existingIndex >= 0) {
-      chatMessages[existingIndex] = message;
-    } else {
-      chatMessages.push(message);
-      chatMessages.sort((a, b) => a.timestamp - b.timestamp);
+  async addMessage(message: Message): Promise<void> {
+    try {
+      // Ensure parent chat exists in database before inserting foreign-key message
+      const chatExists = await prisma.chat.findUnique({
+        where: { id: message.chatId },
+        select: { id: true },
+      });
+
+      if (!chatExists) {
+        await prisma.chat.create({
+          data: {
+            id: message.chatId,
+            name: message.pushName || message.chatId.split("@")[0],
+            isGroup: message.chatId.endsWith("@g.us"),
+            lastMessage: message.text || `[${message.type}]`,
+            lastMessageTimestamp: BigInt(message.timestamp),
+          },
+        });
+      }
+
+      await prisma.message.upsert({
+        where: { id: message.id },
+        create: {
+          id: message.id,
+          chatId: message.chatId,
+          senderId: message.senderId,
+          timestamp: BigInt(message.timestamp),
+          type: message.type,
+          text: message.text || null,
+          media: message.media ? (message.media as object) : undefined,
+          quotedMessageId: message.quotedMessageId || null,
+          fromMe: message.fromMe,
+          pushName: message.pushName || null,
+          status: message.status || "pending",
+        },
+        update: {
+          status: message.status || "pending",
+          text: message.text || null,
+        },
+      });
+    } catch (err) {
+      logger.error({ err, messageId: message.id }, "Failed to save message to database");
     }
-    this.messages.set(message.chatId, chatMessages);
-    this.saveToDisk();
   }
 
-  addMessages(messages: Message[]): void {
+  async addMessages(messages: Message[]): Promise<void> {
     for (const msg of messages) {
-      this.addMessage(msg);
+      await this.addMessage(msg);
     }
   }
 
-  getMessages(chatId: string, limit = 50, before?: number): Message[] {
-    const chatMessages = this.messages.get(chatId) || [];
-    let filtered = chatMessages;
-    if (before) {
-      filtered = chatMessages.filter((m) => m.timestamp < before);
+  async getMessages(chatId: string, limit = 50, before?: number): Promise<Message[]> {
+    try {
+      const whereClause: {
+        chatId: string;
+        timestamp?: { lt: bigint };
+      } = { chatId };
+
+      if (before) {
+        whereClause.timestamp = { lt: BigInt(before) };
+      }
+
+      const dbMessages = await prisma.message.findMany({
+        where: whereClause,
+        orderBy: { timestamp: "desc" },
+        take: limit,
+      });
+
+      // Reverse so messages are in chronological ascending order
+      return dbMessages.reverse().map((m) => ({
+        id: m.id,
+        chatId: m.chatId,
+        senderId: m.senderId,
+        timestamp: Number(m.timestamp),
+        type: m.type as MessageType,
+        text: m.text || undefined,
+        media: m.media as Message["media"],
+        quotedMessageId: m.quotedMessageId || undefined,
+        fromMe: m.fromMe,
+        status: (m.status || "pending") as MessageStatus,
+        pushName: m.pushName || undefined,
+      }));
+    } catch (err) {
+      logger.error({ err, chatId }, "Failed to query messages from database");
+      return [];
     }
-    return filtered.slice(-limit);
   }
 
-  getMessage(chatId: string, messageId: string): Message | undefined {
-    const chatMessages = this.messages.get(chatId) || [];
-    return chatMessages.find((m) => m.id === messageId);
+  async getMessage(chatId: string, messageId: string): Promise<Message | undefined> {
+    try {
+      const m = await prisma.message.findUnique({
+        where: { id: messageId },
+      });
+      if (!m) return undefined;
+
+      return {
+        id: m.id,
+        chatId: m.chatId,
+        senderId: m.senderId,
+        timestamp: Number(m.timestamp),
+        type: m.type as MessageType,
+        text: m.text || undefined,
+        media: m.media as Message["media"],
+        quotedMessageId: m.quotedMessageId || undefined,
+        fromMe: m.fromMe,
+        status: (m.status || "pending") as MessageStatus,
+        pushName: m.pushName || undefined,
+      };
+    } catch (err) {
+      logger.error({ err, messageId }, "Failed to get message from database");
+      return undefined;
+    }
   }
 
-  updateMessageStatus(
-    chatId: string,
+  async updateMessageStatus(
+    _chatId: string,
     messageId: string,
     status: Message["status"]
-  ): void {
-    const chatMessages = this.messages.get(chatId) || [];
-    const msg = chatMessages.find((m) => m.id === messageId);
-    if (msg) {
-      msg.status = status;
-      this.saveToDisk();
+  ): Promise<void> {
+    try {
+      await prisma.message.updateMany({
+        where: { id: messageId },
+        data: { status: status || "pending" },
+      });
+    } catch (err) {
+      logger.error({ err, messageId }, "Failed to update message status in database");
     }
   }
 
   // ─── Contacts ─────────────────────────────────────────────
 
-  upsertContact(contact: Contact): void {
+  async upsertContact(contact: Contact): Promise<void> {
     const existing = this.contacts.get(contact.id);
-    if (existing) {
-      this.contacts.set(contact.id, { ...existing, ...contact });
-    } else {
-      this.contacts.set(contact.id, contact);
+    this.contacts.set(contact.id, existing ? { ...existing, ...contact } : contact);
+
+    try {
+      await prisma.contact.upsert({
+        where: { id: contact.id },
+        create: {
+          id: contact.id,
+          name: contact.name || null,
+          pushName: contact.pushName || null,
+        },
+        update: {
+          name: contact.name || null,
+          pushName: contact.pushName || null,
+        },
+      });
+    } catch (err) {
+      logger.error({ err, contactId: contact.id }, "Failed to upsert contact to database");
     }
-    this.saveToDisk();
   }
 
   getContact(contactId: string): Contact | undefined {
@@ -191,23 +348,81 @@ class Store {
     return contact?.name || contact?.pushName;
   }
 
-  clear(): void {
-    logger.info("Clearing store");
-    this.chats.clear();
-    this.messages.clear();
-    this.contacts.clear();
+  // ─── Media Storage ────────────────────────────────────────
+
+  /**
+   * Saves downloaded media binary buffer to PostgreSQL.
+   */
+  async saveMedia(
+    messageId: string,
+    mimetype: string,
+    buffer: Buffer,
+    fileName?: string,
+    fileSize?: number
+  ): Promise<void> {
     try {
-      if (fs.existsSync(STORE_FILE)) {
-        fs.unlinkSync(STORE_FILE);
-      }
+      await prisma.media.upsert({
+        where: { id: messageId },
+        create: {
+          id: messageId,
+          mimetype,
+          data: buffer,
+          fileName: fileName || null,
+          fileSize: fileSize || buffer.length,
+        },
+        update: {
+          mimetype,
+          data: buffer,
+          fileName: fileName || null,
+          fileSize: fileSize || buffer.length,
+        },
+      });
+      logger.info({ messageId, size: buffer.length }, "Saved media to database");
     } catch (err) {
-      logger.error(err, "Failed to delete store file");
+      logger.error({ err, messageId }, "Failed to save media to database");
+    }
+  }
+
+  /**
+   * Retrieves downloaded media binary buffer from PostgreSQL.
+   */
+  async getMedia(
+    messageId: string
+  ): Promise<{ buffer: Buffer; mimetype: string } | null> {
+    try {
+      const item = await prisma.media.findUnique({
+        where: { id: messageId },
+      });
+      if (!item) return null;
+      return {
+        buffer: Buffer.from(item.data),
+        mimetype: item.mimetype,
+      };
+    } catch (err) {
+      logger.error({ err, messageId }, "Failed to get media from database");
+      return null;
+    }
+  }
+
+  // ─── Reset ────────────────────────────────────────────────
+
+  async clear(): Promise<void> {
+    logger.info("Clearing store and database records");
+    this.chats.clear();
+    this.contacts.clear();
+
+    try {
+      await prisma.message.deleteMany();
+      await prisma.chat.deleteMany();
+      await prisma.contact.deleteMany();
+      await prisma.media.deleteMany();
+    } catch (err) {
+      logger.error(err, "Failed to clear database records");
     }
   }
 }
 
-// Singleton instance
-// Attach store to globalThis for Next.js bundler compatibility
+// Singleton instance attached to globalThis
 const globalForStore = globalThis as unknown as {
   __whatsappStore?: Store;
 };

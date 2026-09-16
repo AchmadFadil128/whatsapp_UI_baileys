@@ -45,6 +45,9 @@ class WhatsAppService extends EventEmitter {
   private connectionState: WhatsAppConnectionState = "disconnected";
   private reconnectAttempts = 0;
   private currentQrCode: string | null = null;
+  private isConnecting = false;
+  private isExplicitDisconnect = false;
+  private reconnectTimer: NodeJS.Timeout | null = null;
 
   private rawMessages = new Map<string, WAMessage>();
 
@@ -60,14 +63,48 @@ class WhatsAppService extends EventEmitter {
     return this.connectionState === "connected";
   }
 
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private async cleanupSocket(): Promise<void> {
+    this.clearReconnectTimer();
+    if (this.socket) {
+      try {
+        this.socket.ev.removeAllListeners("connection.update");
+        this.socket.end(undefined);
+      } catch (err) {
+        logger.error(err, "Error closing socket");
+      }
+      this.socket = null;
+    }
+  }
+
   /**
    * Initializes the Baileys socket and connects to WhatsApp.
    * Persists auth state to filesystem (data/whatsapp/auth/).
    */
   async connect(): Promise<void> {
+    if (this.isConnected() && this.socket) {
+      logger.info("Already connected to WhatsApp, skipping duplicate connect");
+      return;
+    }
+
+    if (this.isConnecting) {
+      logger.info("Connection attempt already in progress, skipping");
+      return;
+    }
+
+    this.clearReconnectTimer();
+    this.isExplicitDisconnect = false;
+    this.isConnecting = true;
+
     if (this.socket) {
-      logger.warn("Socket already exists, disconnecting first");
-      await this.disconnect();
+      logger.warn("Stale socket exists, disconnecting first");
+      await this.cleanupSocket();
     }
 
     this.updateState("connecting");
@@ -86,6 +123,13 @@ class WhatsAppService extends EventEmitter {
         },
         browser: BROWSER_IDENTITY,
         generateHighQualityLinkPreview: true,
+        syncFullHistory: false,
+        markOnlineOnConnect: false,
+        fireInitQueries: false,
+        defaultQueryTimeoutMs: 120000,
+        connectTimeoutMs: 120000,
+        keepAliveIntervalMs: 30000,
+        retryRequestDelayMs: 250,
         getMessage: async (key) => {
           if (!key.id) return undefined;
           const raw = this.rawMessages.get(key.id);
@@ -143,6 +187,7 @@ class WhatsAppService extends EventEmitter {
         this.handlePresenceUpdate(presence);
       });
     } catch (error) {
+      this.isConnecting = false;
       logger.error(error, "Failed to connect to WhatsApp");
       this.updateState("error", undefined, (error as Error).message);
       throw error;
@@ -153,10 +198,9 @@ class WhatsAppService extends EventEmitter {
    * Gracefully disconnects without clearing auth state.
    */
   async disconnect(): Promise<void> {
-    if (this.socket) {
-      this.socket.end(undefined);
-      this.socket = null;
-    }
+    this.isExplicitDisconnect = true;
+    this.isConnecting = false;
+    await this.cleanupSocket();
     this.reconnectAttempts = 0;
     this.currentQrCode = null;
     this.updateState("disconnected");
@@ -166,8 +210,12 @@ class WhatsAppService extends EventEmitter {
    * Logs out, clears auth state, and disconnects.
    */
   async logout(): Promise<void> {
+    this.isExplicitDisconnect = true;
+    this.isConnecting = false;
+    this.clearReconnectTimer();
     if (this.socket) {
       try {
+        this.socket.ev.removeAllListeners("connection.update");
         await this.socket.logout();
       } catch (error) {
         logger.error(error, "Error during logout");
@@ -223,10 +271,18 @@ class WhatsAppService extends EventEmitter {
 
   /**
    * Downloads media from a message, returning the buffer and mimetype.
+   * Checks database cache first before attempting download via Baileys.
    */
   async downloadMedia(
     messageId: string
   ): Promise<{ buffer: Buffer; mimetype: string } | null> {
+    // 1. Check database cache first
+    const cached = await store.getMedia(messageId);
+    if (cached) {
+      return cached;
+    }
+
+    // 2. Look up raw message in memory for Baileys download
     const raw = this.rawMessages.get(messageId);
     if (!raw) {
       logger.warn({ messageId }, "Raw message not found for media download");
@@ -245,8 +301,12 @@ class WhatsAppService extends EventEmitter {
         raw.message?.stickerMessage;
 
       const mimetype = content?.mimetype || "application/octet-stream";
+      const mediaBuffer = buffer as Buffer;
 
-      return { buffer: buffer as Buffer, mimetype };
+      // 3. Cache to database so it survives server restarts
+      await store.saveMedia(messageId, mimetype, mediaBuffer);
+
+      return { buffer: mediaBuffer, mimetype };
     } catch (error) {
       logger.error(error, "Failed to download media");
       return null;
@@ -260,7 +320,7 @@ class WhatsAppService extends EventEmitter {
     if (!this.socket || !this.isConnected()) return;
 
     try {
-      const messages = store.getMessages(chatId, 1);
+      const messages = await store.getMessages(chatId, 1);
       if (messages.length > 0) {
         const lastMsg = messages[messages.length - 1];
         await this.socket.readMessages([
@@ -294,9 +354,29 @@ class WhatsAppService extends EventEmitter {
       logger.info("QR code generated");
     }
 
-    if (connection === "close") {
+    if (connection === "open") {
+      logger.info("Connected to WhatsApp");
+      this.isConnecting = false;
+      this.reconnectAttempts = 0;
       this.currentQrCode = null;
+      this.clearReconnectTimer();
+      this.updateState("connected");
+      return;
+    }
+
+    if (connection === "close") {
+      this.isConnecting = false;
+      this.currentQrCode = null;
+      this.clearReconnectTimer();
+
+      if (this.isExplicitDisconnect) {
+        logger.info("WhatsApp socket closed intentionally, skipping reconnect");
+        this.socket = null;
+        return;
+      }
+
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+      logger.info({ statusCode, err: lastDisconnect?.error }, "WhatsApp connection closed");
 
       if (statusCode === DisconnectReason.loggedOut) {
         logger.info("Logged out from WhatsApp");
@@ -307,28 +387,32 @@ class WhatsAppService extends EventEmitter {
         return;
       }
 
+      const isRestartRequired = statusCode === DisconnectReason.restartRequired;
+
       if (this.reconnectAttempts < MAX_RECONNECT_RETRIES) {
         this.reconnectAttempts++;
-        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+        const delay = isRestartRequired
+          ? 1000
+          : Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+
         logger.info(
-          { attempt: this.reconnectAttempts, delay },
+          { attempt: this.reconnectAttempts, delay, statusCode },
           "Reconnecting to WhatsApp"
         );
         this.updateState("reconnecting");
         this.socket = null;
-        setTimeout(() => this.connect(), delay);
+
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this.connect().catch((err) => {
+            logger.error(err, "Reconnect attempt failed");
+          });
+        }, delay);
       } else {
         logger.error("Max reconnect attempts reached");
         this.updateState("error", undefined, "Max reconnect attempts reached");
         this.socket = null;
       }
-    }
-
-    if (connection === "open") {
-      logger.info("Connected to WhatsApp");
-      this.reconnectAttempts = 0;
-      this.currentQrCode = null;
-      this.updateState("connected");
     }
   }
 

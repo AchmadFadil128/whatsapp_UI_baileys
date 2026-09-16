@@ -14,7 +14,7 @@ export async function GET(
   const before = beforeParam ? parseInt(beforeParam, 10) : undefined;
 
   const decodedChatId = decodeURIComponent(chatId);
-  const messages = store.getMessages(decodedChatId, limit, before);
+  const messages = await store.getMessages(decodedChatId, limit, before);
 
   return NextResponse.json({
     success: true,

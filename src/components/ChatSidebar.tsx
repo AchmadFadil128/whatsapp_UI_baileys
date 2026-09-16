@@ -10,11 +10,16 @@ interface ChatSidebarProps {
   onSelectChat: (chatId: string) => void;
   onDisconnect: () => void;
   onLogout: () => void;
+  soundEnabled?: boolean;
+  onToggleSound?: () => void;
+  desktopPermission?: NotificationPermission;
+  onRequestDesktopPermission?: () => void;
+  onTestNotification?: () => void;
 }
 
 /**
  * Left panel chat list with search, avatars, last message preview,
- * timestamps, and unread count badges.
+ * timestamps, unread count badges, and notification controls.
  */
 export default function ChatSidebar({
   chats,
@@ -23,9 +28,15 @@ export default function ChatSidebar({
   onSelectChat,
   onDisconnect,
   onLogout,
+  soundEnabled = true,
+  onToggleSound,
+  desktopPermission = "default",
+  onRequestDesktopPermission,
+  onTestNotification,
 }: ChatSidebarProps) {
   const [search, setSearch] = useState("");
   const [showMenu, setShowMenu] = useState(false);
+  const [dismissedBanner, setDismissedBanner] = useState(false);
 
   const filteredChats = useMemo(() => {
     if (!search.trim()) return chats;
@@ -98,67 +109,164 @@ export default function ChatSidebar({
           />
           <h2>Chats</h2>
         </div>
-        <div style={{ position: "relative" }}>
-          <button
-            className="btn btn-ghost"
-            onClick={() => setShowMenu(!showMenu)}
-            aria-label="Menu"
-            style={{ padding: "6px 8px", fontSize: "1.1rem" }}
-          >
-            ⋮
-          </button>
-          {showMenu && (
-            <div
-              style={{
-                position: "absolute",
-                right: 0,
-                top: "100%",
-                background: "var(--bg-header)",
-                border: "1px solid var(--border-default)",
-                borderRadius: "var(--radius-md)",
-                padding: "4px 0",
-                minWidth: "160px",
-                boxShadow: "var(--shadow-lg)",
-                zIndex: 50,
-              }}
+        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          {/* Sound Toggle Button */}
+          {onToggleSound && (
+            <button
+              className="btn btn-ghost"
+              onClick={onToggleSound}
+              aria-label={soundEnabled ? "Mute notification sound" : "Unmute notification sound"}
+              title={soundEnabled ? "Notification sound: On" : "Notification sound: Off"}
+              style={{ padding: "6px 8px", fontSize: "1.05rem" }}
             >
-              <button
-                className="btn btn-ghost"
-                onClick={() => {
-                  setShowMenu(false);
-                  onDisconnect();
-                }}
-                style={{
-                  width: "100%",
-                  justifyContent: "flex-start",
-                  borderRadius: 0,
-                  padding: "8px 16px",
-                  fontSize: "0.875rem",
-                }}
-              >
-                Disconnect
-              </button>
-              <button
-                className="btn btn-ghost"
-                onClick={() => {
-                  setShowMenu(false);
-                  onLogout();
-                }}
-                style={{
-                  width: "100%",
-                  justifyContent: "flex-start",
-                  borderRadius: 0,
-                  padding: "8px 16px",
-                  fontSize: "0.875rem",
-                  color: "var(--accent-danger)",
-                }}
-              >
-                Log out
-              </button>
-            </div>
+              {soundEnabled ? "🔔" : "🔕"}
+            </button>
           )}
+
+          <div style={{ position: "relative" }}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setShowMenu(!showMenu)}
+              aria-label="Menu"
+              style={{ padding: "6px 8px", fontSize: "1.1rem" }}
+            >
+              ⋮
+            </button>
+            {showMenu && (
+              <div
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  top: "100%",
+                  background: "var(--bg-header)",
+                  border: "1px solid var(--border-default)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "4px 0",
+                  minWidth: "190px",
+                  boxShadow: "var(--shadow-lg)",
+                  zIndex: 50,
+                }}
+              >
+                {onToggleSound && (
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setShowMenu(false);
+                      onToggleSound();
+                    }}
+                    style={{
+                      width: "100%",
+                      justifyContent: "flex-start",
+                      borderRadius: 0,
+                      padding: "8px 16px",
+                      fontSize: "0.875rem",
+                    }}
+                  >
+                    {soundEnabled ? "🔕 Mute Sound" : "🔔 Unmute Sound"}
+                  </button>
+                )}
+                {onTestNotification && (
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setShowMenu(false);
+                      onTestNotification();
+                    }}
+                    style={{
+                      width: "100%",
+                      justifyContent: "flex-start",
+                      borderRadius: 0,
+                      padding: "8px 16px",
+                      fontSize: "0.875rem",
+                    }}
+                  >
+                    🔊 Test Sound
+                  </button>
+                )}
+                {desktopPermission !== "granted" && onRequestDesktopPermission && (
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setShowMenu(false);
+                      onRequestDesktopPermission();
+                    }}
+                    style={{
+                      width: "100%",
+                      justifyContent: "flex-start",
+                      borderRadius: 0,
+                      padding: "8px 16px",
+                      fontSize: "0.875rem",
+                      color: "var(--accent-blue)",
+                    }}
+                  >
+                    💬 Enable Alerts
+                  </button>
+                )}
+                <div style={{ height: "1px", background: "var(--border-default)", margin: "4px 0" }} />
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setShowMenu(false);
+                    onDisconnect();
+                  }}
+                  style={{
+                    width: "100%",
+                    justifyContent: "flex-start",
+                    borderRadius: 0,
+                    padding: "8px 16px",
+                    fontSize: "0.875rem",
+                  }}
+                >
+                  Disconnect
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setShowMenu(false);
+                    onLogout();
+                  }}
+                  style={{
+                    width: "100%",
+                    justifyContent: "flex-start",
+                    borderRadius: 0,
+                    padding: "8px 16px",
+                    fontSize: "0.875rem",
+                    color: "var(--accent-danger)",
+                  }}
+                >
+                  Log out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Desktop Notification Banner */}
+      {!dismissedBanner && desktopPermission === "default" && onRequestDesktopPermission && (
+        <div
+          className="notification-banner"
+          onClick={onRequestDesktopPermission}
+          role="button"
+          tabIndex={0}
+        >
+          <div className="notification-banner-icon">🔔</div>
+          <div className="notification-banner-text">
+            <div className="notification-banner-title">Get notified of new messages</div>
+            <div className="notification-banner-sub">Turn on desktop notifications &gt;</div>
+          </div>
+          <button
+            className="notification-banner-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDismissedBanner(true);
+            }}
+            aria-label="Dismiss banner"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Search */}
       <div className="sidebar-search">

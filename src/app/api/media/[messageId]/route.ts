@@ -29,7 +29,7 @@ export async function GET(
     );
   }
 
-  return new NextResponse(media.buffer, {
+  return new NextResponse(new Uint8Array(media.buffer), {
     status: 200,
     headers: {
       "Content-Type": media.mimetype,

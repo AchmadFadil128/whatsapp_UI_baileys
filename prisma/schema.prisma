@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Chat {
+  id                   String    @id
+  name                 String
+  lastMessage          String?
+  lastMessageTimestamp BigInt    @default(0)
+  unreadCount          Int       @default(0)
+  isGroup              Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  messages             Message[]
+
+  @@map("chats")
+}
+
+model Message {
+  id              String   @id
+  chatId          String
+  senderId        String
+  timestamp       BigInt
+  type            String
+  text            String?
+  media           Json?
+  quotedMessageId String?
+  fromMe          Boolean  @default(false)
+  pushName        String?
+  status          String?
+  createdAt       DateTime @default(now())
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, timestamp])
+  @@map("messages")
+}
+
+model Contact {
+  id           String   @id
+  name         String?
+  pushName     String?
+  verifiedName String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("contacts")
+}
+
+model Media {
+  id        String   @id // messageId
+  mimetype  String
+  data      Bytes
+  fileName  String?
+  fileSize  Int?
+  createdAt DateTime @default(now())
+
+  @@map("media")
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
