@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import type { Message, Chat } from "@/types";
 import MessageBubble from "@/components/MessageBubble";
 import MessageInput from "@/components/MessageInput";
@@ -13,6 +13,7 @@ interface ChatWindowProps {
   onSendMessage: (text: string) => void;
   onLoadMore: () => void;
   onBack?: () => void;
+  onRename?: (newName: string) => void;
 }
 
 /**
@@ -27,7 +28,11 @@ export default function ChatWindow({
   onSendMessage,
   onLoadMore,
   onBack,
+  onRename,
 }: ChatWindowProps) {
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState("");
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isFirstLoad = useRef(true);
@@ -134,8 +139,61 @@ export default function ChatWindow({
         <div className="chat-header-avatar">
           {getInitials(chat.name || "?")}
         </div>
-        <div className="chat-header-info">
-          <div className="chat-header-name">{chat.name}</div>
+        <div className="chat-header-info" style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+          {isEditingName ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <input
+                type="text"
+                value={editNameValue}
+                onChange={(e) => setEditNameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    onRename?.(editNameValue);
+                    setIsEditingName(false);
+                  } else if (e.key === "Escape") {
+                    setIsEditingName(false);
+                  }
+                }}
+                autoFocus
+                className="input"
+                style={{ padding: "4px 8px", fontSize: "1rem" }}
+              />
+              <button
+                className="btn btn-primary"
+                style={{ padding: "4px 8px", fontSize: "0.9rem" }}
+                onClick={() => {
+                  onRename?.(editNameValue);
+                  setIsEditingName(false);
+                }}
+              >
+                Save
+              </button>
+              <button
+                className="btn btn-ghost"
+                style={{ padding: "4px 8px", fontSize: "0.9rem" }}
+                onClick={() => setIsEditingName(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div className="chat-header-name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {chat.name}
+              </div>
+              <button
+                className="btn btn-ghost"
+                style={{ padding: "2px", display: "flex", opacity: 0.6 }}
+                title="Rename chat (local only)"
+                onClick={() => {
+                  setEditNameValue(chat.name || "");
+                  setIsEditingName(true);
+                }}
+              >
+                ✏️
+              </button>
+            </div>
+          )}
           <div className="chat-header-status">
             {isGroup ? "Group" : "Chat"}
           </div>

@@ -13,6 +13,8 @@ import ChatSidebar from "@/components/ChatSidebar";
 import ChatWindow from "@/components/ChatWindow";
 import NotificationToastContainer from "@/components/NotificationToast";
 
+import { useChatAliases } from "@/hooks/useChatAliases";
+
 /**
  * Main page — orchestrates the entire WhatsApp client UI.
  * Shows QR/connection screen when disconnected, and the
@@ -35,6 +37,15 @@ export default function Home() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const { messages, isLoading: isLoadingMessages, hasMore, loadMore, appendMessage } =
     useMessages(activeChatId);
+    
+  const { aliases, setAlias } = useChatAliases();
+  
+  const aliasedChats = useMemo(() => {
+    return chats.map(c => ({
+      ...c,
+      name: aliases[c.id] || c.name,
+    }));
+  }, [chats, aliases]);
 
   const handleSelectChat = useCallback(
     (chatId: string) => {
@@ -56,25 +67,25 @@ export default function Home() {
     playNotificationSound,
   } = useNotifications({
     activeChatId,
-    chats,
+    chats: aliasedChats,
     onSelectChat: handleSelectChat,
   });
 
   // Find the active chat object (or fallback if newly initiated)
   const activeChat = useMemo(
     () =>
-      chats.find((c) => c.id === activeChatId) ||
+      aliasedChats.find((c) => c.id === activeChatId) ||
       (activeChatId
         ? {
             id: activeChatId,
-            name: activeChatId.replace("@s.whatsapp.net", "").replace("@g.us", ""),
+            name: aliases[activeChatId] || activeChatId.replace("@s.whatsapp.net", "").replace("@g.us", ""),
             lastMessage: "",
             lastMessageTimestamp: Math.floor(Date.now() / 1000),
             unreadCount: 0,
             isGroup: activeChatId.endsWith("@g.us"),
           }
         : null),
-    [chats, activeChatId]
+    [aliasedChats, activeChatId, aliases]
   );
 
   const handleSendMessage = useCallback(
@@ -157,6 +168,7 @@ export default function Home() {
         onSendMessage={handleSendMessage}
         onLoadMore={loadMore}
         onBack={activeChatId ? handleBack : undefined}
+        onRename={(newName) => activeChatId && setAlias(activeChatId, newName)}
       />
     </div>
   );
