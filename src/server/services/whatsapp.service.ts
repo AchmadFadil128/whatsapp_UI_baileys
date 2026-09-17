@@ -423,9 +423,50 @@ class WhatsAppService extends EventEmitter {
       if (raw.key?.id && raw.message) {
         this.rawMessages.set(raw.key.id, raw);
       }
+
+      const isStatusBroadcast = raw.key?.remoteJid === "status@broadcast";
+      const isNewsletter = raw.key?.remoteJid?.endsWith("@newsletter") ?? false;
+      const isReaction = !!raw.message?.reactionMessage;
+
+      // ─── Reactions: don't store as messages, don't update chat ───
+      if (isReaction) {
+        logger.info(
+          { chatId: raw.key?.remoteJid, from: raw.pushName },
+          "Reaction received (ignored from chat)"
+        );
+        continue;
+      }
+
       const message = transformMessage(raw);
       if (!message) continue;
 
+      // ─── Status broadcasts: store message but don't update chat list ───
+      if (isStatusBroadcast) {
+        logger.info(
+          { from: raw.pushName, type: message.type },
+          "Status broadcast received (excluded from chat list)"
+        );
+        store.addMessage(message);
+        if (type === "notify") {
+          this.emit("message:received", { message });
+        }
+        continue;
+      }
+
+      // ─── Newsletters/Channels: store message but don't update chat list ───
+      if (isNewsletter) {
+        logger.info(
+          { channelId: raw.key?.remoteJid, type: message.type },
+          "Newsletter message received (excluded from chat list)"
+        );
+        store.addMessage(message);
+        if (type === "notify") {
+          this.emit("message:received", { message });
+        }
+        continue;
+      }
+
+      // ─── Regular chat messages ───
       store.addMessage(message);
       store.updateChatLastMessage(message.chatId, message);
 
@@ -460,6 +501,8 @@ class WhatsAppService extends EventEmitter {
   private handleChatsUpsert(rawChats: BaileysEventMap["chats.upsert"]): void {
     for (const raw of rawChats) {
       const chatId = normalizeJid(raw.id);
+      // Skip status broadcast — not a real chat
+      if (chatId === "status@broadcast") continue;
       const chat: Chat = {
         id: chatId,
         name: raw.name || store.getContactName(chatId) || chatId.split("@")[0],
@@ -477,6 +520,8 @@ class WhatsAppService extends EventEmitter {
     for (const update of updates) {
       if (!update.id) continue;
       const chatId = normalizeJid(update.id);
+      // Skip status broadcast — not a real chat
+      if (chatId === "status@broadcast") continue;
       const existing = store.getChat(chatId);
       if (existing) {
         if (update.name) existing.name = update.name;

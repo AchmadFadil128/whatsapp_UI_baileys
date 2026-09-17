@@ -6,14 +6,16 @@ import { useWhatsApp } from "@/hooks/useWhatsApp";
 import { useChats } from "@/hooks/useChats";
 import { useMessages } from "@/hooks/useMessages";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useChatAliases } from "@/hooks/useChatAliases";
+import { useStatuses } from "@/hooks/useStatuses";
+import { useChannels } from "@/hooks/useChannels";
 import { getSocket } from "@/lib/socket";
 import * as api from "@/lib/api";
 import QRScreen from "@/components/QRScreen";
 import ChatSidebar from "@/components/ChatSidebar";
 import ChatWindow from "@/components/ChatWindow";
+import StatusView from "@/components/StatusView";
 import NotificationToastContainer from "@/components/NotificationToast";
-
-import { useChatAliases } from "@/hooks/useChatAliases";
 
 /**
  * Main page — orchestrates the entire WhatsApp client UI.
@@ -35,11 +37,14 @@ export default function Home() {
 
   const { chats, markRead } = useChats();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"chats" | "status" | "channels">("chats");
   const { messages, isLoading: isLoadingMessages, hasMore, loadMore, appendMessage } =
     useMessages(activeChatId);
-    
+
   const { aliases, setAlias } = useChatAliases();
-  
+  const { statuses, isLoading: isLoadingStatuses } = useStatuses();
+  const { channels } = useChannels();
+
   const aliasedChats = useMemo(() => {
     return chats.map(c => ({
       ...c,
@@ -50,6 +55,7 @@ export default function Home() {
   const handleSelectChat = useCallback(
     (chatId: string) => {
       setActiveChatId(chatId);
+      setActiveTab((prev) => (prev === "status" ? "chats" : prev));
       // Optimistically clear badge and tell backend to mark read on WhatsApp
       markRead(chatId);
       getSocket().emit("message:read", chatId);
@@ -75,6 +81,7 @@ export default function Home() {
   const activeChat = useMemo(
     () =>
       aliasedChats.find((c) => c.id === activeChatId) ||
+      channels.find((c) => c.id === activeChatId) ||
       (activeChatId
         ? {
             id: activeChatId,
@@ -85,7 +92,7 @@ export default function Home() {
             isGroup: activeChatId.endsWith("@g.us"),
           }
         : null),
-    [aliasedChats, activeChatId, aliases]
+    [aliasedChats, channels, activeChatId, aliases]
   );
 
   const handleSendMessage = useCallback(
@@ -146,9 +153,11 @@ export default function Home() {
 
       {/* Chat Sidebar */}
       <ChatSidebar
-        chats={aliasedChats}
+        chats={activeTab === "channels" ? channels : aliasedChats}
         activeChatId={activeChatId}
         connectionState={connectionState}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
         onSelectChat={handleSelectChat}
         onDisconnect={disconnect}
         onLogout={logout}
@@ -159,17 +168,24 @@ export default function Home() {
         onTestNotification={playNotificationSound}
       />
 
-      {/* Chat Window */}
-      <ChatWindow
-        chat={activeChat}
-        messages={messages}
-        isLoading={isLoadingMessages}
-        hasMore={hasMore}
-        onSendMessage={handleSendMessage}
-        onLoadMore={loadMore}
-        onBack={activeChatId ? handleBack : undefined}
-        onRename={(newName) => activeChatId && setAlias(activeChatId, newName)}
-      />
+      {/* Main Content Area */}
+      {activeTab === "status" ? (
+        <StatusView
+          statuses={statuses}
+          isLoading={isLoadingStatuses}
+        />
+      ) : (
+        <ChatWindow
+          chat={activeChat}
+          messages={messages}
+          isLoading={isLoadingMessages}
+          hasMore={hasMore}
+          onSendMessage={handleSendMessage}
+          onLoadMore={loadMore}
+          onBack={activeChatId ? handleBack : undefined}
+          onRename={(newName) => activeChatId && setAlias(activeChatId, newName)}
+        />
+      )}
     </div>
   );
 }

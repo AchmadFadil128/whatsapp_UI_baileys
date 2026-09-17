@@ -7,6 +7,8 @@ interface ChatSidebarProps {
   chats: Chat[];
   activeChatId: string | null;
   connectionState: WhatsAppConnectionState;
+  activeTab: "chats" | "status" | "channels";
+  onTabChange: (tab: "chats" | "status" | "channels") => void;
   onSelectChat: (chatId: string) => void;
   onDisconnect: () => void;
   onLogout: () => void;
@@ -25,6 +27,8 @@ export default function ChatSidebar({
   chats,
   activeChatId,
   connectionState,
+  activeTab,
+  onTabChange,
   onSelectChat,
   onDisconnect,
   onLogout,
@@ -267,6 +271,28 @@ export default function ChatSidebar({
           </button>
         </div>
       )}
+
+      {/* Tabs */}
+      <div className="sidebar-tabs">
+        <button
+          className={`sidebar-tab ${activeTab === "chats" ? "active" : ""}`}
+          onClick={() => onTabChange("chats")}
+        >
+          💬 Chats
+        </button>
+        <button
+          className={`sidebar-tab ${activeTab === "status" ? "active" : ""}`}
+          onClick={() => onTabChange("status")}
+        >
+          📡 Status
+        </button>
+        <button
+          className={`sidebar-tab ${activeTab === "channels" ? "active" : ""}`}
+          onClick={() => onTabChange("channels")}
+        >
+          📢 Channels
+        </button>
+      </div>
 
       {/* Search */}
       <div className="sidebar-search">

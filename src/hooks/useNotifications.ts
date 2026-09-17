@@ -128,6 +128,12 @@ export function useNotifications({
       // Do not notify for user's own sent messages
       if (message.fromMe) return;
 
+      // Do not notify for status broadcasts, channels, or reactions
+      const isStatus = message.chatId === "status@broadcast";
+      const isChannel = message.chatId.endsWith("@newsletter");
+      const isReaction = message.type === "reaction";
+      if (isStatus || isChannel || isReaction) return;
+
       const currentActiveId = activeChatIdRef.current;
       const isCurrentChat = currentActiveId === message.chatId;
       const isWindowFocused =

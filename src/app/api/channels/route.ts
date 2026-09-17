@@ -4,12 +4,11 @@ import type { ApiResponse, Chat } from "@/types";
 
 export async function GET(): Promise<NextResponse<ApiResponse<Chat[]>>> {
   const allChats = await store.getChatsFromDb();
-  // Filter out status broadcasts and newsletters — they are not regular chats
-  const chats = allChats.filter(
-    (c) => c.id !== "status@broadcast" && !c.id.endsWith("@newsletter")
-  );
+  // Filter out ONLY newsletters
+  const channels = allChats.filter((c) => c.id.endsWith("@newsletter"));
+  
   return NextResponse.json({
     success: true,
-    data: chats,
+    data: channels,
   });
 }
