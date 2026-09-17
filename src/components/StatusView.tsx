@@ -64,8 +64,13 @@ export default function StatusView({ statuses, isLoading }: StatusViewProps) {
     );
   }
 
-  // Filter by search query
+  // Filter by search query and exclude deleted/protocol messages
   const filteredStatuses = statuses.filter((status) => {
+    // Ignore deleted messages or protocol updates
+    if (status.type === "protocol" || status.text?.includes("This message was deleted")) {
+      return false;
+    }
+
     const query = searchQuery.toLowerCase();
     const sender = (status.pushName || status.senderId || "").toLowerCase();
     const text = (status.text || status.media?.caption || "").toLowerCase();
@@ -135,14 +140,20 @@ export default function StatusView({ statuses, isLoading }: StatusViewProps) {
                 </div>
               )}
               {status.type === "video" && (
-                <div className="status-card-text">
-                  🎥 {status.media?.caption || status.text || "Video status"}
+                <div className="status-card-video-container" style={{ marginTop: "8px", borderRadius: "8px", overflow: "hidden", background: "#000" }}>
+                  <video
+                    src={`/api/media/${status.id}`}
+                    controls
+                    className="status-card-video"
+                    style={{ width: "100%", display: "block", maxHeight: "400px", objectFit: "contain" }}
+                    preload="metadata"
+                  />
                 </div>
               )}
               {(status.type === "text" || (!["image", "video"].includes(status.type))) && status.text && (
                 <div className="status-card-text">{status.text}</div>
               )}
-              {status.media?.caption && status.type === "image" && (
+              {status.media?.caption && (status.type === "image" || status.type === "video") && (
                 <div className="status-card-caption">{status.media.caption}</div>
               )}
             </div>

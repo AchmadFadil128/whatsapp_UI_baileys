@@ -55,11 +55,7 @@ export default function MessageBubble({
       case "image":
         return renderImage();
       case "video":
-        return (
-          <div className="message-text">
-            🎥 {message.media?.caption || message.text || "Video"}
-          </div>
-        );
+        return renderVideo();
       case "audio":
         return <div className="message-text">🎵 Audio message</div>;
       case "document":
@@ -114,6 +110,24 @@ export default function MessageBubble({
             loading="lazy"
           />
         )}
+        {caption && <div className="message-text media-caption">{caption}</div>}
+      </div>
+    );
+  }
+
+  function renderVideo() {
+    const mediaUrl = `/api/media/${message.id}`;
+    const caption = message.media?.caption || message.text;
+
+    return (
+      <div className="message-media">
+        <video
+          src={mediaUrl}
+          controls
+          className="message-image loaded"
+          style={{ maxWidth: "100%", borderRadius: "8px", background: "#000" }}
+          preload="metadata"
+        />
         {caption && <div className="message-text media-caption">{caption}</div>}
       </div>
     );
