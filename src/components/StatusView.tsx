@@ -67,7 +67,7 @@ export default function StatusView({ statuses, isLoading }: StatusViewProps) {
   // Filter by search query and exclude deleted/protocol messages
   const filteredStatuses = statuses.filter((status) => {
     // Ignore deleted messages or protocol updates
-    if (status.type === "protocol" || status.text?.includes("This message was deleted")) {
+    if (status.text?.includes("This message was deleted")) {
       return false;
     }
 
