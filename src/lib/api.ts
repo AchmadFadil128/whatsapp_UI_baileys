@@ -46,6 +46,13 @@ export async function logoutWhatsApp() {
   return request("/api/whatsapp/logout", { method: "POST" });
 }
 
+export async function setPresence(status: "available" | "unavailable") {
+  return request("/api/whatsapp/presence", {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+}
+
 // ─── Chats ────────────────────────────────────────────────────
 
 export async function getChats() {

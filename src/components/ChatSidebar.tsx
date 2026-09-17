@@ -17,6 +17,10 @@ interface ChatSidebarProps {
   desktopPermission?: NotificationPermission;
   onRequestDesktopPermission?: () => void;
   onTestNotification?: () => void;
+  presence?: "available" | "unavailable";
+  onTogglePresence?: () => void;
+  autoReadReceipts?: boolean;
+  onToggleAutoRead?: () => void;
 }
 
 /**
@@ -37,6 +41,10 @@ export default function ChatSidebar({
   desktopPermission = "default",
   onRequestDesktopPermission,
   onTestNotification,
+  presence,
+  onTogglePresence,
+  autoReadReceipts = true,
+  onToggleAutoRead,
 }: ChatSidebarProps) {
   const [search, setSearch] = useState("");
   const [showMenu, setShowMenu] = useState(false);
@@ -167,6 +175,42 @@ export default function ChatSidebar({
                     }}
                   >
                     {soundEnabled ? "🔕 Mute Sound" : "🔔 Unmute Sound"}
+                  </button>
+                )}
+                {onTogglePresence && (
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setShowMenu(false);
+                      onTogglePresence();
+                    }}
+                    style={{
+                      width: "100%",
+                      justifyContent: "flex-start",
+                      borderRadius: 0,
+                      padding: "8px 16px",
+                      fontSize: "0.875rem",
+                    }}
+                  >
+                    {presence === "available" ? "🟢 Go Offline" : "⚪ Go Online"}
+                  </button>
+                )}
+                {onToggleAutoRead && (
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setShowMenu(false);
+                      onToggleAutoRead();
+                    }}
+                    style={{
+                      width: "100%",
+                      justifyContent: "flex-start",
+                      borderRadius: 0,
+                      padding: "8px 16px",
+                      fontSize: "0.875rem",
+                    }}
+                  >
+                    {autoReadReceipts ? "👁️ Disable Blue Ticks" : "👁️ Enable Blue Ticks"}
                   </button>
                 )}
                 {onTestNotification && (

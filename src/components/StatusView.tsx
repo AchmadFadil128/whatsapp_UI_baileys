@@ -14,6 +14,7 @@ interface StatusViewProps {
  */
 export default function StatusView({ statuses, isLoading }: StatusViewProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   function formatTimestamp(ts: number): string {
     const date = new Date(ts * 1000);
@@ -63,8 +64,16 @@ export default function StatusView({ statuses, isLoading }: StatusViewProps) {
     );
   }
 
-  // Sort newest first
-  const sorted = [...statuses].sort((a, b) => b.timestamp - a.timestamp);
+  // Filter by search query
+  const filteredStatuses = statuses.filter((status) => {
+    const query = searchQuery.toLowerCase();
+    const sender = (status.pushName || status.senderId || "").toLowerCase();
+    const text = (status.text || status.media?.caption || "").toLowerCase();
+    return sender.includes(query) || text.includes(query);
+  });
+
+  // Sort newest at the bottom
+  const sorted = [...filteredStatuses].sort((a, b) => a.timestamp - b.timestamp);
 
   return (
     <div className="chat-window">
@@ -79,6 +88,18 @@ export default function StatusView({ statuses, isLoading }: StatusViewProps) {
             {statuses.length} update{statuses.length !== 1 ? "s" : ""}
           </div>
         </div>
+      </div>
+
+      {/* Search Bar */}
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-default)", background: "var(--bg-app)" }}>
+        <input
+          type="text"
+          placeholder="Search status updates..."
+          className="search-input"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "none", background: "var(--bg-input)", color: "var(--text-primary)" }}
+        />
       </div>
 
       {/* Status Feed */}

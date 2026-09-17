@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useSocket } from "@/hooks/useSocket";
 import { useWhatsApp } from "@/hooks/useWhatsApp";
 import { useChats } from "@/hooks/useChats";
@@ -45,6 +45,19 @@ export default function Home() {
   const { statuses, isLoading: isLoadingStatuses } = useStatuses();
   const { channels } = useChannels();
 
+  const [presence, setPresence] = useState<"available" | "unavailable">("available");
+  const [autoReadReceipts, setAutoReadReceipts] = useState(true);
+
+  const handleTogglePresence = useCallback(async () => {
+    const nextPresence = presence === "available" ? "unavailable" : "available";
+    try {
+      await api.setPresence(nextPresence);
+      setPresence(nextPresence);
+    } catch (err) {
+      console.error("Failed to set presence", err);
+    }
+  }, [presence]);
+
   const aliasedChats = useMemo(() => {
     return chats.map(c => ({
       ...c,
@@ -52,16 +65,41 @@ export default function Home() {
     }));
   }, [chats, aliases]);
 
+  const aliasedChannels = useMemo(() => {
+    return channels.map(c => ({
+      ...c,
+      name: aliases[c.id] || c.name,
+    }));
+  }, [channels, aliases]);
+
   const handleSelectChat = useCallback(
     (chatId: string) => {
       setActiveChatId(chatId);
       setActiveTab((prev) => (prev === "status" ? "chats" : prev));
-      // Optimistically clear badge and tell backend to mark read on WhatsApp
+      // Optimistically clear badge and conditionally tell backend to mark read on WhatsApp
       markRead(chatId);
-      getSocket().emit("message:read", chatId);
+      if (autoReadReceipts) {
+        getSocket().emit("message:read", chatId);
+      }
     },
-    [markRead]
+    [markRead, autoReadReceipts]
   );
+
+  // Auto-read incoming messages for the active chat
+  useEffect(() => {
+    if (activeChatId) {
+      const activeChatData =
+        aliasedChats.find((c) => c.id === activeChatId) ||
+        aliasedChannels.find((c) => c.id === activeChatId);
+      
+      if (activeChatData && activeChatData.unreadCount > 0) {
+        markRead(activeChatId);
+        if (autoReadReceipts) {
+          getSocket().emit("message:read", activeChatId);
+        }
+      }
+    }
+  }, [activeChatId, autoReadReceipts, aliasedChats, aliasedChannels, markRead]);
 
   const {
     soundEnabled,
@@ -81,7 +119,7 @@ export default function Home() {
   const activeChat = useMemo(
     () =>
       aliasedChats.find((c) => c.id === activeChatId) ||
-      channels.find((c) => c.id === activeChatId) ||
+      aliasedChannels.find((c) => c.id === activeChatId) ||
       (activeChatId
         ? {
             id: activeChatId,
@@ -92,7 +130,7 @@ export default function Home() {
             isGroup: activeChatId.endsWith("@g.us"),
           }
         : null),
-    [aliasedChats, channels, activeChatId, aliases]
+    [aliasedChats, aliasedChannels, activeChatId, aliases]
   );
 
   const handleSendMessage = useCallback(
@@ -153,7 +191,7 @@ export default function Home() {
 
       {/* Chat Sidebar */}
       <ChatSidebar
-        chats={activeTab === "channels" ? channels : aliasedChats}
+        chats={activeTab === "channels" ? aliasedChannels : aliasedChats}
         activeChatId={activeChatId}
         connectionState={connectionState}
         activeTab={activeTab}
@@ -166,6 +204,10 @@ export default function Home() {
         desktopPermission={desktopPermission}
         onRequestDesktopPermission={requestDesktopPermission}
         onTestNotification={playNotificationSound}
+        presence={presence}
+        onTogglePresence={handleTogglePresence}
+        autoReadReceipts={autoReadReceipts}
+        onToggleAutoRead={() => setAutoReadReceipts((prev) => !prev)}
       />
 
       {/* Main Content Area */}

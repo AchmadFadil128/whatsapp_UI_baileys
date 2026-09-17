@@ -343,6 +343,23 @@ class WhatsAppService extends EventEmitter {
     }
   }
 
+  /**
+   * Sets the connection presence (online/offline)
+   */
+  async setPresence(status: "available" | "unavailable"): Promise<void> {
+    if (!this.socket || !this.isConnected()) {
+      logger.warn("Cannot set presence: socket is not connected");
+      return;
+    }
+    try {
+      await this.socket.sendPresenceUpdate(status);
+      logger.info({ status }, "Successfully set presence");
+    } catch (error) {
+      logger.error(error, "Failed to set presence");
+      throw error;
+    }
+  }
+
   // ─── Private Event Handlers ─────────────────────────────────
 
   private handleConnectionUpdate(update: Partial<ConnectionState>): void {
