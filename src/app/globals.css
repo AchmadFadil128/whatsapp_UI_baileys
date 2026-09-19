@@ -448,21 +448,25 @@ body {
 }
 
 .message-action-menu {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
   opacity: 0;
   transition: opacity 0.2s;
   display: flex;
-  gap: 4px;
+  align-items: center;
+  margin: 0 8px;
 }
 
 .message-row.sent .message-action-menu {
-  right: calc(100% + 8px);
+  order: 1;
+}
+.message-row.sent .message-bubble {
+  order: 2;
 }
 
+.message-row.received .message-bubble {
+  order: 1;
+}
 .message-row.received .message-action-menu {
-  left: calc(100% + 8px);
+  order: 2;
 }
 
 .message-row:hover .message-action-menu {
