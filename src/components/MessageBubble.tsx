@@ -55,7 +55,7 @@ export default function MessageBubble({ message, showSender = false, onReply }: 
       case "video":
         return renderVideo();
       case "audio":
-        return <div className="message-text">🎵 Audio message</div>;
+        return renderAudio();
       case "document":
         return (
           <div className="message-text">
@@ -127,6 +127,24 @@ export default function MessageBubble({ message, showSender = false, onReply }: 
           preload="metadata"
         />
         {caption && <div className="message-text media-caption">{caption}</div>}
+      </div>
+    );
+  }
+
+  function renderAudio() {
+    const mediaUrl = `/api/media/${message.id}`;
+    return (
+      <div className="message-media audio-message" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px' }}>
+        <div style={{ fontSize: '1.5rem', color: 'var(--accent-primary)' }}>
+          🎤
+        </div>
+        <audio
+          src={mediaUrl}
+          controls
+          controlsList="nodownload"
+          preload="metadata"
+          style={{ height: "36px", minWidth: "220px", borderRadius: "18px", outline: "none" }}
+        />
       </div>
     );
   }
