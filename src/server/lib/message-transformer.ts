@@ -82,6 +82,7 @@ function getMessageType(content: proto.IMessage | undefined): MessageType {
 
   if (content.conversation || content.extendedTextMessage) return "text";
   if (content.imageMessage) return "image";
+  if (content.ptvMessage) return "ptv";
   if (content.videoMessage) return "video";
   if (content.audioMessage) return "audio";
   if (content.documentMessage) return "document";
@@ -149,6 +150,7 @@ function extractMedia(content: proto.IMessage | undefined): MediaReference | und
 
   const mediaMsg =
     content.imageMessage ||
+    content.ptvMessage ||
     content.videoMessage ||
     content.audioMessage ||
     content.documentMessage ||

@@ -290,13 +290,15 @@ class WhatsAppService extends EventEmitter {
   }
 
   /**
-   * Sends an image message through the connected WhatsApp session.
+   * Sends a media message (image, video, audio, document) through the connected WhatsApp session.
    */
-  async sendImageMessage(
+  async sendMediaMessage(
     chatId: string,
     buffer: Buffer,
     mimetype: string,
-    caption?: string
+    fileName?: string,
+    caption?: string,
+    replyToMessageId?: string
   ): Promise<Message | null> {
     if (!this.socket || !this.isConnected()) {
       throw new Error("WhatsApp is not connected");
@@ -307,11 +309,45 @@ class WhatsAppService extends EventEmitter {
         ? chatId
         : `${chatId}@s.whatsapp.net`;
 
-      const sent = await this.socket.sendMessage(targetJid, {
-        image: buffer,
-        mimetype,
-        caption: caption || undefined,
-      });
+      let messagePayload: any = {};
+      if (mimetype.startsWith("image/")) {
+        messagePayload = { image: buffer, mimetype, caption: caption || undefined };
+      } else if (mimetype.startsWith("video/")) {
+        messagePayload = { video: buffer, mimetype, caption: caption || undefined };
+      } else if (mimetype.startsWith("audio/")) {
+        messagePayload = { audio: buffer, mimetype, ptt: false };
+      } else {
+        messagePayload = { document: buffer, mimetype, caption: caption || undefined, fileName: fileName || "document" };
+      }
+
+      let options: any = {};
+      if (replyToMessageId) {
+        let rawMsg = this.rawMessages.get(replyToMessageId);
+        
+        // Fallback to database if not in memory cache
+        if (!rawMsg) {
+          const dbMsg = await store.getMessage(chatId, replyToMessageId);
+          if (dbMsg) {
+            rawMsg = {
+              key: {
+                id: dbMsg.id,
+                remoteJid: dbMsg.chatId,
+                participant: dbMsg.senderId !== "me" ? dbMsg.senderId : undefined,
+                fromMe: dbMsg.fromMe,
+              },
+              message: {
+                conversation: dbMsg.text || "",
+              },
+            } as any;
+          }
+        }
+        
+        if (rawMsg) {
+          options.quoted = rawMsg;
+        }
+      }
+
+      const sent = await this.socket.sendMessage(targetJid, messagePayload, options);
 
       if (sent) {
         if (sent.key?.id && sent.message) {
@@ -371,6 +407,7 @@ class WhatsAppService extends EventEmitter {
       // Extract mimetype from the message content
       const content =
         raw.message?.imageMessage ||
+        raw.message?.ptvMessage ||
         raw.message?.videoMessage ||
         raw.message?.audioMessage ||
         raw.message?.documentMessage ||

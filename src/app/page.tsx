@@ -139,8 +139,7 @@ export default function Home() {
       try {
         let res;
         if (file) {
-          // sendImageMessage does not support reply yet in this implementation
-          res = await api.sendImageMessage(activeChatId, file, text);
+          res = await api.sendMediaMessage(activeChatId, file, text, replyToMessageId);
         } else {
           res = await api.sendMessage(activeChatId, text, replyToMessageId);
         }

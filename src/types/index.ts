@@ -46,6 +46,7 @@ export type MessageType =
   | "text"
   | "image"
   | "video"
+  | "ptv"
   | "audio"
   | "document"
   | "sticker"

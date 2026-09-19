@@ -54,6 +54,8 @@ export default function MessageBubble({ message, showSender = false, onReply }: 
         return renderImage();
       case "video":
         return renderVideo();
+      case "ptv":
+        return renderPtv();
       case "audio":
         return renderAudio();
       case "document":
@@ -127,6 +129,24 @@ export default function MessageBubble({ message, showSender = false, onReply }: 
           preload="metadata"
         />
         {caption && <div className="message-text media-caption">{caption}</div>}
+      </div>
+    );
+  }
+
+  function renderPtv() {
+    const mediaUrl = `/api/media/${message.id}`;
+    return (
+      <div className="message-media ptv-message" style={{ display: 'flex', justifyContent: 'center' }}>
+        <video
+          src={mediaUrl}
+          controls
+          autoPlay
+          loop
+          muted
+          className="message-image loaded"
+          style={{ width: "240px", height: "240px", borderRadius: "50%", objectFit: "cover", background: "#000" }}
+          preload="metadata"
+        />
       </div>
     );
   }

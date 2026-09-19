@@ -63,14 +63,13 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.type.startsWith("image/")) {
-      setAttachment(file);
+    setAttachment(file);
+    if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
       setPreviewUrl(URL.createObjectURL(file));
-      // Focus textarea to type caption
-      textareaRef.current?.focus();
     } else {
-      alert("Please select an image file.");
+      setPreviewUrl(null);
     }
+    textareaRef.current?.focus();
     
     // Reset input so the same file can be selected again if needed
     if (fileInputRef.current) {
@@ -107,8 +106,8 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
         </div>
       )}
 
-      {/* Image Preview Overlay */}
-      {previewUrl && (
+      {/* Attachment Preview Overlay */}
+      {attachment && (
         <div 
           style={{
             position: "relative",
@@ -117,14 +116,31 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
             background: "var(--bg-app)",
             padding: "8px",
             borderRadius: "var(--radius-md)",
-            border: "1px solid var(--border-default)"
+            border: "1px solid var(--border-default)",
+            maxWidth: "300px"
           }}
         >
-          <img 
-            src={previewUrl} 
-            alt="Attachment preview" 
-            style={{ maxHeight: "150px", maxWidth: "200px", borderRadius: "var(--radius-sm)", objectFit: "contain" }} 
-          />
+          {previewUrl ? (
+            attachment.type.startsWith("video/") ? (
+              <video 
+                src={previewUrl} 
+                style={{ maxHeight: "150px", maxWidth: "200px", borderRadius: "var(--radius-sm)", objectFit: "contain" }} 
+              />
+            ) : (
+              <img 
+                src={previewUrl} 
+                alt="Attachment preview" 
+                style={{ maxHeight: "150px", maxWidth: "200px", borderRadius: "var(--radius-sm)", objectFit: "contain" }} 
+              />
+            )
+          ) : (
+            <div style={{ padding: "16px", display: "flex", alignItems: "center", gap: "8px", color: "var(--text-primary)" }}>
+              <span style={{ fontSize: "24px" }}>📄</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {attachment.name}
+              </span>
+            </div>
+          )}
           <button 
             onClick={removeAttachment}
             style={{
@@ -156,7 +172,7 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
           className="btn btn-ghost"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
-          title="Attach image"
+          title="Attach file"
           style={{ padding: "10px", fontSize: "1.2rem", color: "var(--text-secondary)" }}
         >
           📎
@@ -165,7 +181,6 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
           type="file" 
           ref={fileInputRef} 
           style={{ display: "none" }} 
-          accept="image/*"
           onChange={handleFileChange}
         />
 

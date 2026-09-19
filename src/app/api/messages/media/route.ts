@@ -3,9 +3,9 @@ import { whatsappService } from "@/server/services/whatsapp.service";
 import type { ApiResponse, Message } from "@/types";
 
 /**
- * POST /api/messages/image
- * Sends an image message via FormData upload.
- * Fields: chatId (string), file (File), caption? (string)
+ * POST /api/messages/media
+ * Sends a media message (image, video, audio, document) via FormData upload.
+ * Fields: chatId (string), file (File), caption? (string), replyToMessageId? (string)
  */
 export async function POST(
   request: NextRequest
@@ -15,6 +15,7 @@ export async function POST(
     const chatId = formData.get("chatId") as string;
     const file = formData.get("file") as File | null;
     const caption = (formData.get("caption") as string) || undefined;
+    const replyToMessageId = (formData.get("replyToMessageId") as string) || undefined;
 
     if (!chatId || !file) {
       return NextResponse.json(
@@ -32,13 +33,16 @@ export async function POST(
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const mimetype = file.type || "image/jpeg";
+    const mimetype = file.type || "application/octet-stream";
+    const fileName = file.name || undefined;
 
-    const message = await whatsappService.sendImageMessage(
+    const message = await whatsappService.sendMediaMessage(
       chatId,
       buffer,
       mimetype,
-      caption
+      fileName,
+      caption,
+      replyToMessageId
     );
 
     return NextResponse.json({

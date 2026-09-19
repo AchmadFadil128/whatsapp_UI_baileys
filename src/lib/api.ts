@@ -95,17 +95,19 @@ export async function sendMessage(chatId: string, text: string, replyToMessageId
   });
 }
 
-export async function sendImageMessage(
+export async function sendMediaMessage(
   chatId: string,
   file: File,
-  caption?: string
+  caption?: string,
+  replyToMessageId?: string
 ) {
   const formData = new FormData();
   formData.append("chatId", chatId);
   formData.append("file", file);
   if (caption) formData.append("caption", caption);
+  if (replyToMessageId) formData.append("replyToMessageId", replyToMessageId);
 
-  const response = await fetch("/api/messages/image", {
+  const response = await fetch("/api/messages/media", {
     method: "POST",
     body: formData,
   });
