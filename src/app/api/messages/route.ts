@@ -28,7 +28,7 @@ export async function POST(
       );
     }
 
-    const message = await whatsappService.sendMessage(body.chatId, body.text);
+    const message = await whatsappService.sendMessage(body.chatId, body.text, body.replyToMessageId);
 
     return NextResponse.json({
       success: true,

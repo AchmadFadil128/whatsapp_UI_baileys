@@ -134,14 +134,15 @@ export default function Home() {
   );
 
   const handleSendMessage = useCallback(
-    async (text: string, file?: File) => {
+    async (text: string, file?: File, replyToMessageId?: string) => {
       if (!activeChatId) return;
       try {
         let res;
         if (file) {
+          // sendImageMessage does not support reply yet in this implementation
           res = await api.sendImageMessage(activeChatId, file, text);
         } else {
-          res = await api.sendMessage(activeChatId, text);
+          res = await api.sendMessage(activeChatId, text, replyToMessageId);
         }
         
         if (res.success && res.data) {

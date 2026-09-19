@@ -6,6 +6,7 @@ import type { Message } from "@/types";
 interface MessageBubbleProps {
   message: Message;
   showSender?: boolean;
+  onReply?: () => void;
 }
 
 /**
@@ -13,10 +14,7 @@ interface MessageBubbleProps {
  * timestamp, and delivery status indicators.
  * Supports inline image rendering with click-to-enlarge.
  */
-export default function MessageBubble({
-  message,
-  showSender = false,
-}: MessageBubbleProps) {
+export default function MessageBubble({ message, showSender = false, onReply }: MessageBubbleProps) {
   const direction = message.fromMe ? "sent" : "received";
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -136,6 +134,13 @@ export default function MessageBubble({
   return (
     <>
       <div className={`message-row ${direction}`}>
+        {onReply && (
+          <div className="message-action-menu">
+            <button className="reply-action-btn" onClick={onReply} title="Reply">
+              ↩️
+            </button>
+          </div>
+        )}
         <div className="message-bubble">
           {showSender && !message.fromMe && message.pushName && (
             <div className="message-sender">{message.pushName}</div>

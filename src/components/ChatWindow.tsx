@@ -10,7 +10,7 @@ interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
   hasMore: boolean;
-  onSendMessage: (text: string, file?: File) => void;
+  onSendMessage: (text: string, file?: File, replyToMessageId?: string) => void;
   onLoadMore: () => void;
   onBack?: () => void;
   onRename?: (newName: string) => void;
@@ -32,6 +32,7 @@ export default function ChatWindow({
 }: ChatWindowProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -51,9 +52,10 @@ export default function ChatWindow({
     }
   }, [messages.length]);
 
-  // Reset first load flag when chat changes
+  // Reset first load flag and reply state when chat changes
   useEffect(() => {
     isFirstLoad.current = true;
+    setReplyingTo(null);
   }, [chat?.id]);
 
   // Handle scroll to top for infinite scroll
@@ -250,6 +252,7 @@ export default function ChatWindow({
               key={item.message.id}
               message={item.message}
               showSender={isGroup}
+              onReply={() => setReplyingTo(item.message)}
             />
           );
         })}
@@ -258,7 +261,14 @@ export default function ChatWindow({
       </div>
 
       {/* Message Input */}
-      <MessageInput onSend={onSendMessage} />
+      <MessageInput 
+        onSend={(text, file) => {
+          onSendMessage(text, file, replyingTo?.id);
+          setReplyingTo(null);
+        }}
+        replyingTo={replyingTo}
+        onCancelReply={() => setReplyingTo(null)}
+      />
     </div>
   );
 }

@@ -87,8 +87,8 @@ export async function getMessages(
   );
 }
 
-export async function sendMessage(chatId: string, text: string) {
-  const body: SendMessageRequest = { chatId, text };
+export async function sendMessage(chatId: string, text: string, replyToMessageId?: string) {
+  const body: SendMessageRequest = { chatId, text, replyToMessageId };
   return request<Message>("/api/messages", {
     method: "POST",
     body: JSON.stringify(body),

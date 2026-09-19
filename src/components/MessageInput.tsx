@@ -2,16 +2,20 @@
 
 import { useState, useRef, useCallback, type KeyboardEvent } from "react";
 
+import type { Message } from "@/types";
+
 interface MessageInputProps {
   onSend: (text: string, file?: File) => void;
   disabled?: boolean;
+  replyingTo?: Message | null;
+  onCancelReply?: () => void;
 }
 
 /**
  * Message composition bar with auto-resize textarea and image attachment capability.
  * Enter to send, Shift+Enter for newline.
  */
-export default function MessageInput({ onSend, disabled }: MessageInputProps) {
+export default function MessageInput({ onSend, disabled, replyingTo, onCancelReply }: MessageInputProps) {
   const [text, setText] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -81,9 +85,28 @@ export default function MessageInput({ onSend, disabled }: MessageInputProps) {
       setPreviewUrl(null);
     }
   };
-
   return (
     <div className="message-input-container" style={{ flexDirection: "column", padding: "12px 20px" }}>
+      {replyingTo && (
+        <div className="input-reply-preview">
+          <div className="input-reply-preview-content">
+            <div className="input-reply-preview-sender">
+              {replyingTo.fromMe ? "You" : (replyingTo.pushName || replyingTo.senderId.split("@")[0])}
+            </div>
+            <div className="input-reply-preview-text">
+              {replyingTo.text || "Message"}
+            </div>
+          </div>
+          <button
+            className="input-reply-preview-close"
+            onClick={onCancelReply}
+            title="Cancel reply"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Image Preview Overlay */}
       {previewUrl && (
         <div 

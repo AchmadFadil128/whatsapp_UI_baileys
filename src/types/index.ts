@@ -130,6 +130,7 @@ export interface ApiResponse<T = unknown> {
 export interface SendMessageRequest {
   chatId: string;
   text: string;
+  replyToMessageId?: string;
 }
 
 export interface GetMessagesQuery {

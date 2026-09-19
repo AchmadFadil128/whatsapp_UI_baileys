@@ -232,7 +232,7 @@ class WhatsAppService extends EventEmitter {
   /**
    * Sends a text message through the connected WhatsApp session.
    */
-  async sendMessage(chatId: string, text: string): Promise<Message | null> {
+  async sendMessage(chatId: string, text: string, replyToMessageId?: string): Promise<Message | null> {
     if (!this.socket || !this.isConnected()) {
       throw new Error("WhatsApp is not connected");
     }
@@ -242,7 +242,34 @@ class WhatsAppService extends EventEmitter {
         ? chatId
         : `${chatId}@s.whatsapp.net`;
 
-      const sent = await this.socket.sendMessage(targetJid, { text });
+      let options: any = {};
+      if (replyToMessageId) {
+        let rawMsg = this.rawMessages.get(replyToMessageId);
+        
+        // Fallback to database if not in memory cache
+        if (!rawMsg) {
+          const dbMsg = await store.getMessage(chatId, replyToMessageId);
+          if (dbMsg) {
+            rawMsg = {
+              key: {
+                id: dbMsg.id,
+                remoteJid: dbMsg.chatId,
+                participant: dbMsg.senderId !== "me" ? dbMsg.senderId : undefined,
+                fromMe: dbMsg.fromMe,
+              },
+              message: {
+                conversation: dbMsg.text || "",
+              },
+            } as any;
+          }
+        }
+        
+        if (rawMsg) {
+          options.quoted = rawMsg;
+        }
+      }
+
+      const sent = await this.socket.sendMessage(targetJid, { text }, options);
       if (sent) {
         if (sent.key?.id && sent.message) {
           this.rawMessages.set(sent.key.id, sent);
