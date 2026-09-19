@@ -59,11 +59,7 @@ export default function MessageBubble({ message, showSender = false, onReply }: 
       case "audio":
         return renderAudio();
       case "document":
-        return (
-          <div className="message-text">
-            📄 {message.media?.fileName || "Document"}
-          </div>
-        );
+        return renderDocument();
       case "sticker":
         return <div className="message-text">🏷️ Sticker</div>;
       case "location":
@@ -165,6 +161,41 @@ export default function MessageBubble({ message, showSender = false, onReply }: 
           preload="metadata"
           style={{ height: "36px", minWidth: "220px", borderRadius: "18px", outline: "none" }}
         />
+      </div>
+    );
+  }
+
+  function renderDocument() {
+    const mediaUrl = `/api/media/${message.id}`;
+    const fileName = message.media?.fileName || "Document";
+    const caption = message.media?.caption || message.text;
+
+    return (
+      <div className="message-media document-message" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <a
+          href={mediaUrl}
+          download={fileName}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            padding: "10px 14px",
+            background: "rgba(255, 255, 255, 0.1)",
+            borderRadius: "var(--radius-md)",
+            textDecoration: "none",
+            color: "var(--text-primary)",
+            border: "1px solid var(--border-default)"
+          }}
+        >
+          <span style={{ fontSize: "24px" }}>📄</span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, fontWeight: 500 }}>
+            {fileName}
+          </span>
+          <span style={{ opacity: 0.8 }} title="Download">⬇️</span>
+        </a>
+        {caption && <div className="message-text media-caption">{caption}</div>}
       </div>
     );
   }

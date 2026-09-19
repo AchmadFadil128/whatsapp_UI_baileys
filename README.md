@@ -33,9 +33,10 @@ Next.js Frontend (Browser)
 
 ### 1. 💬 Obrolan & Pesan Lengkap
 - Tampilan obrolan personal dan grup.
-- Mendukung berbagai jenis pesan: teks, gambar, video, audio/voice notes, dokumen, dan stiker.
+- Mendukung berbagai jenis pesan: teks, gambar, video, audio/voice notes, dokumen, stiker, dan *video notes* (PTV).
 - Mendukung pesan kutipan (*quoted/reply message*).
 - Indikator centang status pesan (terkirim, terkirim ke server, dibaca/centang biru).
+- Fitur mengunggah dan mengunduh berkas generik (seperti `.pdf`, `.zip`, dll.) secara langsung dari layar obrolan.
 
 ### 2. 🔄 Tab Status / Story Terpisah
 - Tab navigasi khusus untuk melihat pembaruan status WhatsApp.
@@ -95,7 +96,7 @@ Cara termudah dan paling konsisten untuk menjalankan aplikasi beserta database P
    ```
 
 2. **Siapkan konfigurasi environment:**
-   Sesuaikan file `.env.dockhand` atau buat file `.env`:
+   Sesuaikan file `.env.example` atau buat file `.env`:
    ```bash
    cp .env.example .env
    ```
