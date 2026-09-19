@@ -16,6 +16,8 @@ export interface Chat {
   lastMessageTimestamp: number;
   unreadCount: number;
   isGroup: boolean;
+  isArchived?: boolean;
+  isMuted?: boolean;
   profilePicUrl?: string;
 }
 

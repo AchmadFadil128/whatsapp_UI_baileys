@@ -21,6 +21,8 @@ interface ChatSidebarProps {
   onTogglePresence?: () => void;
   autoReadReceipts?: boolean;
   onToggleAutoRead?: () => void;
+  onToggleArchive?: (chatId: string) => void;
+  onToggleMute?: (chatId: string) => void;
 }
 
 /**
@@ -45,20 +47,33 @@ export default function ChatSidebar({
   onTogglePresence,
   autoReadReceipts = true,
   onToggleAutoRead,
+  onToggleArchive,
+  onToggleMute,
 }: ChatSidebarProps) {
   const [search, setSearch] = useState("");
   const [showMenu, setShowMenu] = useState(false);
   const [dismissedBanner, setDismissedBanner] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [contextMenuChatId, setContextMenuChatId] = useState<string | null>(null);
+
+  const activeChats = useMemo(() => {
+    return chats.filter(c => !c.isArchived);
+  }, [chats]);
+
+  const archivedChats = useMemo(() => {
+    return chats.filter(c => c.isArchived);
+  }, [chats]);
 
   const filteredChats = useMemo(() => {
-    if (!search.trim()) return chats;
+    const listToFilter = showArchived ? archivedChats : activeChats;
+    if (!search.trim()) return listToFilter;
     const q = search.toLowerCase();
-    return chats.filter(
+    return listToFilter.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.lastMessage?.toLowerCase().includes(q)
     );
-  }, [chats, search]);
+  }, [activeChats, archivedChats, search, showArchived]);
 
   function formatTimestamp(ts: number): string {
     if (!ts) return "";
@@ -342,14 +357,40 @@ export default function ChatSidebar({
       <div className="sidebar-search">
         <input
           type="text"
-          placeholder="Search or start new chat"
+          placeholder={showArchived ? "Search archived chats" : "Search or start new chat"}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
+      {/* Archive Toggle */}
+      {activeTab === "chats" && archivedChats.length > 0 && !search.trim() && (
+        <div 
+          className="archive-toggle" 
+          onClick={() => setShowArchived(!showArchived)}
+          style={{
+            padding: "12px 20px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            cursor: "pointer",
+            borderBottom: "1px solid var(--border-default)",
+            color: "var(--text-secondary)",
+            fontSize: "0.95rem"
+          }}
+        >
+          <span style={{ fontSize: "1.2rem" }}>📥</span>
+          <span style={{ flex: 1, fontWeight: 500 }}>Archived</span>
+          <span style={{ color: "var(--accent-teal)", fontWeight: 500 }}>
+            {archivedChats.filter(c => c.unreadCount > 0).length > 0 ? (
+              archivedChats.filter(c => c.unreadCount > 0).length
+            ) : ""}
+          </span>
+        </div>
+      )}
+
       {/* Chat List */}
-      <div className="chat-list">
+      <div className="chat-list" style={{ position: "relative" }}>
         {filteredChats.length === 0 ? (
           <div
             style={{
@@ -417,16 +458,81 @@ export default function ChatSidebar({
                   </span>
                 </div>
                 <div className="chat-info-bottom">
-                  <span className="chat-last-message">
+                  <span className="chat-last-message" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    {chat.isMuted && <span style={{ fontSize: "0.8rem", color: "var(--text-tertiary)" }}>🔇</span>}
                     {chat.lastMessage || "\u00A0"}
                   </span>
                   {chat.unreadCount > 0 && (
-                    <span className="chat-unread-badge">
+                    <span className="chat-unread-badge" style={{ background: chat.isMuted ? "var(--text-tertiary)" : "var(--accent-teal)" }}>
                       {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
                     </span>
                   )}
                 </div>
               </div>
+
+              {/* Individual Chat Context Menu Trigger (Right Click) */}
+              <div 
+                style={{ position: "absolute", right: "20px", top: "50%", transform: "translateY(-50%)" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setContextMenuChatId(contextMenuChatId === chat.id ? null : chat.id);
+                }}
+              >
+                <button className="btn btn-ghost chat-item-menu-btn" style={{ padding: "4px", display: "none" }}>
+                  ⋮
+                </button>
+              </div>
+
+              {/* Context Menu Dropdown */}
+              {contextMenuChatId === chat.id && (
+                <div
+                  style={{
+                    position: "absolute",
+                    right: "40px",
+                    top: "40px",
+                    background: "var(--bg-header)",
+                    border: "1px solid var(--border-default)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "4px 0",
+                    minWidth: "150px",
+                    boxShadow: "var(--shadow-lg)",
+                    zIndex: 50,
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {onToggleArchive && (
+                    <button
+                      className="btn btn-ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleArchive(chat.id);
+                        setContextMenuChatId(null);
+                        // If we unarchived it, maybe we want to keep them in view or not. It'll just disappear.
+                        if (chat.isArchived && filteredChats.length === 1) {
+                           setShowArchived(false); // return to main if it was the last archived chat
+                        }
+                      }}
+                      style={{ width: "100%", justifyContent: "flex-start", borderRadius: 0, padding: "8px 16px", fontSize: "0.875rem" }}
+                    >
+                      {chat.isArchived ? "📤 Unarchive" : "📥 Archive"}
+                    </button>
+                  )}
+                  {onToggleMute && (
+                    <button
+                      className="btn btn-ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleMute(chat.id);
+                        setContextMenuChatId(null);
+                      }}
+                      style={{ width: "100%", justifyContent: "flex-start", borderRadius: 0, padding: "8px 16px", fontSize: "0.875rem" }}
+                    >
+                      {chat.isMuted ? "🔊 Unmute" : "🔇 Mute"}
+                    </button>
+                  )}
+                </div>
+              )}
+
             </div>
           ))
         )}

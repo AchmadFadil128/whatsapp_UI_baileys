@@ -10,7 +10,7 @@ interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
   hasMore: boolean;
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string, file?: File) => void;
   onLoadMore: () => void;
   onBack?: () => void;
   onRename?: (newName: string) => void;

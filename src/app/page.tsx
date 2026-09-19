@@ -42,7 +42,7 @@ export default function Home() {
     useMessages(activeChatId);
 
   const { aliases, setAlias } = useChatAliases();
-  const { statuses, isLoading: isLoadingStatuses } = useStatuses();
+  const { statuses, isLoading: isLoadingStatuses, deleteStatus, clearAllStatuses } = useStatuses();
   const { channels } = useChannels();
 
   const [presence, setPresence] = useState<"available" | "unavailable">("available");
@@ -134,10 +134,16 @@ export default function Home() {
   );
 
   const handleSendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, file?: File) => {
       if (!activeChatId) return;
       try {
-        const res = await api.sendMessage(activeChatId, text);
+        let res;
+        if (file) {
+          res = await api.sendImageMessage(activeChatId, file, text);
+        } else {
+          res = await api.sendMessage(activeChatId, text);
+        }
+        
         if (res.success && res.data) {
           appendMessage(res.data);
         }
@@ -208,6 +214,14 @@ export default function Home() {
         onTogglePresence={handleTogglePresence}
         autoReadReceipts={autoReadReceipts}
         onToggleAutoRead={() => setAutoReadReceipts((prev) => !prev)}
+        onToggleArchive={(id) => {
+          const chat = aliasedChats.find(c => c.id === id);
+          if (chat) api.archiveChat(id, !chat.isArchived);
+        }}
+        onToggleMute={(id) => {
+          const chat = aliasedChats.find(c => c.id === id);
+          if (chat) api.muteChat(id, !chat.isMuted);
+        }}
       />
 
       {/* Main Content Area */}
@@ -215,6 +229,8 @@ export default function Home() {
         <StatusView
           statuses={statuses}
           isLoading={isLoadingStatuses}
+          onDeleteStatus={deleteStatus}
+          onClearAll={clearAllStatuses}
         />
       ) : (
         <ChatWindow

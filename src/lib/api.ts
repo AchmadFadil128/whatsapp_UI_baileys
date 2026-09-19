@@ -59,6 +59,20 @@ export async function getChats() {
   return request<Chat[]>("/api/chats");
 }
 
+export async function archiveChat(chatId: string, isArchived: boolean) {
+  return request(`/api/chats/${encodeURIComponent(chatId)}/archive`, {
+    method: "POST",
+    body: JSON.stringify({ isArchived }),
+  });
+}
+
+export async function muteChat(chatId: string, isMuted: boolean) {
+  return request(`/api/chats/${encodeURIComponent(chatId)}/mute`, {
+    method: "POST",
+    body: JSON.stringify({ isMuted }),
+  });
+}
+
 // ─── Messages ─────────────────────────────────────────────────
 
 export async function getMessages(
@@ -79,4 +93,34 @@ export async function sendMessage(chatId: string, text: string) {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export async function sendImageMessage(
+  chatId: string,
+  file: File,
+  caption?: string
+) {
+  const formData = new FormData();
+  formData.append("chatId", chatId);
+  formData.append("file", file);
+  if (caption) formData.append("caption", caption);
+
+  const response = await fetch("/api/messages/image", {
+    method: "POST",
+    body: formData,
+  });
+
+  return (await response.json()) as ApiResponse<Message>;
+}
+
+// ─── Statuses ─────────────────────────────────────────────────
+
+export async function deleteStatus(id: string) {
+  return request(`/api/statuses/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function clearAllStatuses() {
+  return request("/api/statuses", { method: "DELETE" });
 }

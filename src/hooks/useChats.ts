@@ -8,6 +8,7 @@ import type { Chat, ChatUpdateEvent } from "@/types";
 /**
  * React hook for the chat list.
  * Fetches initial chats via REST and listens for realtime updates via Socket.IO.
+ * Supports archive and mute operations with optimistic updates.
  */
 export function useChats() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -67,5 +68,35 @@ export function useChats() {
     );
   }, []);
 
-  return { chats, isLoading, refetch: fetchChats, markRead };
+  const toggleArchive = useCallback(async (chatId: string) => {
+    setChats((prev) =>
+      prev.map((c) =>
+        c.id === chatId ? { ...c, isArchived: !c.isArchived } : c
+      )
+    );
+    try {
+      const chat = chats.find((c) => c.id === chatId);
+      await api.archiveChat(chatId, !chat?.isArchived);
+    } catch (err) {
+      console.error("Failed to archive chat:", err);
+      fetchChats();
+    }
+  }, [chats, fetchChats]);
+
+  const toggleMute = useCallback(async (chatId: string) => {
+    setChats((prev) =>
+      prev.map((c) =>
+        c.id === chatId ? { ...c, isMuted: !c.isMuted } : c
+      )
+    );
+    try {
+      const chat = chats.find((c) => c.id === chatId);
+      await api.muteChat(chatId, !chat?.isMuted);
+    } catch (err) {
+      console.error("Failed to mute chat:", err);
+      fetchChats();
+    }
+  }, [chats, fetchChats]);
+
+  return { chats, isLoading, refetch: fetchChats, markRead, toggleArchive, toggleMute };
 }

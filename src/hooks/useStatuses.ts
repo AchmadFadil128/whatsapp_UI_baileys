@@ -7,6 +7,7 @@ import type { Message, MessageEvent } from "@/types";
 
 /**
  * Hook to fetch and listen for status broadcast messages.
+ * Supports deleting individual statuses and clearing all.
  */
 export function useStatuses() {
   const [statuses, setStatuses] = useState<Message[]>([]);
@@ -48,5 +49,26 @@ export function useStatuses() {
     };
   }, [fetchStatuses]);
 
-  return { statuses, isLoading, refetch: fetchStatuses };
+  const deleteStatus = useCallback(async (id: string) => {
+    setStatuses((prev) => prev.filter((s) => s.id !== id));
+    try {
+      await api.deleteStatus(id);
+    } catch (err) {
+      console.error("Failed to delete status:", err);
+      // Refetch to restore consistency
+      fetchStatuses();
+    }
+  }, [fetchStatuses]);
+
+  const clearAllStatuses = useCallback(async () => {
+    setStatuses([]);
+    try {
+      await api.clearAllStatuses();
+    } catch (err) {
+      console.error("Failed to clear statuses:", err);
+      fetchStatuses();
+    }
+  }, [fetchStatuses]);
+
+  return { statuses, isLoading, refetch: fetchStatuses, deleteStatus, clearAllStatuses };
 }

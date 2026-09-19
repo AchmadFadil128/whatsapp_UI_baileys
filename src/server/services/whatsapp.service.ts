@@ -225,7 +225,7 @@ class WhatsAppService extends EventEmitter {
     this.reconnectAttempts = 0;
     this.currentQrCode = null;
     this.clearAuthState();
-    store.clear();
+    // Chat history is kept persistent — only auth state is cleared
     this.updateState("logged_out");
   }
 
@@ -258,6 +258,55 @@ class WhatsAppService extends EventEmitter {
       return null;
     } catch (error) {
       logger.error(error, "Failed to send message");
+      throw error;
+    }
+  }
+
+  /**
+   * Sends an image message through the connected WhatsApp session.
+   */
+  async sendImageMessage(
+    chatId: string,
+    buffer: Buffer,
+    mimetype: string,
+    caption?: string
+  ): Promise<Message | null> {
+    if (!this.socket || !this.isConnected()) {
+      throw new Error("WhatsApp is not connected");
+    }
+
+    try {
+      const targetJid = chatId.includes("@")
+        ? chatId
+        : `${chatId}@s.whatsapp.net`;
+
+      const sent = await this.socket.sendMessage(targetJid, {
+        image: buffer,
+        mimetype,
+        caption: caption || undefined,
+      });
+
+      if (sent) {
+        if (sent.key?.id && sent.message) {
+          this.rawMessages.set(sent.key.id, sent);
+        }
+        const transformed = transformMessage(sent);
+        if (transformed) {
+          store.addMessage(transformed);
+          store.updateChatLastMessage(transformed.chatId, transformed);
+          this.emit("message:sent", { message: transformed });
+
+          // Cache the media buffer to database
+          if (sent.key?.id) {
+            store.saveMedia(sent.key.id, mimetype, buffer);
+          }
+
+          return transformed;
+        }
+      }
+      return null;
+    } catch (error) {
+      logger.error(error, "Failed to send image message");
       throw error;
     }
   }
@@ -378,6 +427,11 @@ class WhatsAppService extends EventEmitter {
       this.currentQrCode = null;
       this.clearReconnectTimer();
       this.updateState("connected");
+
+      // Sync chat names from stored contacts
+      store.syncChatNamesFromContacts().catch((err) => {
+        logger.error(err, "Failed to sync chat names from contacts");
+      });
       return;
     }
 
@@ -400,7 +454,7 @@ class WhatsAppService extends EventEmitter {
         this.clearAuthState();
         this.updateState("logged_out");
         this.socket = null;
-        store.clear();
+        // Chat history is kept persistent — only auth state is cleared
         return;
       }
 

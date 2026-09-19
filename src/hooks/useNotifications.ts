@@ -143,6 +143,10 @@ export function useNotifications({
 
       // Find sender / chat title
       const chat = chatsRef.current.find((c) => c.id === message.chatId);
+      
+      // Do not notify if the chat is muted
+      if (chat?.isMuted) return;
+
       const title =
         chat?.name ||
         message.pushName ||

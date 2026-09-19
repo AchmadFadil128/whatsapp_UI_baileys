@@ -34,6 +34,8 @@ class Store {
           lastMessageTimestamp: Number(c.lastMessageTimestamp),
           unreadCount: c.unreadCount,
           isGroup: c.isGroup,
+          isArchived: c.isArchived,
+          isMuted: c.isMuted,
         });
       }
 
@@ -73,6 +75,8 @@ class Store {
           lastMessageTimestamp: BigInt(chat.lastMessageTimestamp || 0),
           unreadCount: chat.unreadCount || 0,
           isGroup: Boolean(chat.isGroup),
+          isArchived: Boolean(chat.isArchived),
+          isMuted: Boolean(chat.isMuted),
         },
         update: {
           name: chat.name,
@@ -109,6 +113,8 @@ class Store {
         lastMessageTimestamp: Number(c.lastMessageTimestamp),
         unreadCount: c.unreadCount,
         isGroup: c.isGroup,
+        isArchived: c.isArchived,
+        isMuted: c.isMuted,
       }));
     } catch (err) {
       logger.error(err, "Failed to query chats from database, fallback to cache");
@@ -177,6 +183,44 @@ class Store {
       });
     } catch (err) {
       logger.error({ err, chatId }, "Failed to mark chat as read in database");
+    }
+  }
+
+  /**
+   * Toggles the archived state for a chat.
+   */
+  async archiveChat(chatId: string, isArchived: boolean): Promise<void> {
+    const chat = this.chats.get(chatId);
+    if (chat) {
+      chat.isArchived = isArchived;
+    }
+
+    try {
+      await prisma.chat.updateMany({
+        where: { id: chatId },
+        data: { isArchived },
+      });
+    } catch (err) {
+      logger.error({ err, chatId }, "Failed to archive chat in database");
+    }
+  }
+
+  /**
+   * Toggles the muted state for a chat.
+   */
+  async muteChat(chatId: string, isMuted: boolean): Promise<void> {
+    const chat = this.chats.get(chatId);
+    if (chat) {
+      chat.isMuted = isMuted;
+    }
+
+    try {
+      await prisma.chat.updateMany({
+        where: { id: chatId },
+        data: { isMuted },
+      });
+    } catch (err) {
+      logger.error({ err, chatId }, "Failed to mute chat in database");
     }
   }
 
@@ -311,6 +355,45 @@ class Store {
     }
   }
 
+  // ─── Status Management ────────────────────────────────────
+
+  /**
+   * Deletes a single status message and its associated media.
+   */
+  async deleteStatusMessage(messageId: string): Promise<void> {
+    try {
+      // Delete associated media first
+      await prisma.media.deleteMany({ where: { id: messageId } });
+      // Delete the message
+      await prisma.message.deleteMany({ where: { id: messageId } });
+      logger.info({ messageId }, "Deleted status message and media");
+    } catch (err) {
+      logger.error({ err, messageId }, "Failed to delete status message");
+    }
+  }
+
+  /**
+   * Clears all status broadcast messages and their associated media.
+   */
+  async clearAllStatuses(): Promise<void> {
+    try {
+      // Get all status message IDs to delete their media too
+      const statusMessages = await prisma.message.findMany({
+        where: { chatId: "status@broadcast" },
+        select: { id: true },
+      });
+      const ids = statusMessages.map((m) => m.id);
+
+      if (ids.length > 0) {
+        await prisma.media.deleteMany({ where: { id: { in: ids } } });
+        await prisma.message.deleteMany({ where: { chatId: "status@broadcast" } });
+      }
+      logger.info({ count: ids.length }, "Cleared all status messages and media");
+    } catch (err) {
+      logger.error(err, "Failed to clear all statuses");
+    }
+  }
+
   // ─── Contacts ─────────────────────────────────────────────
 
   async upsertContact(contact: Contact): Promise<void> {
@@ -346,6 +429,43 @@ class Store {
   getContactName(jid: string): string | undefined {
     const contact = this.contacts.get(jid);
     return contact?.name || contact?.pushName;
+  }
+
+  /**
+   * Synchronizes chat names from the contacts table.
+   * Updates chat names that are currently just JID-based with proper contact names.
+   */
+  async syncChatNamesFromContacts(): Promise<void> {
+    let synced = 0;
+    for (const [chatId, chat] of this.chats) {
+      const contactName = this.getContactName(chatId);
+      if (!contactName) continue;
+
+      // Only update if current name looks like a JID (no spaces, contains digits)
+      const currentName = chat.name;
+      const looksLikeJid =
+        !currentName ||
+        /^\d+$/.test(currentName) ||
+        currentName.includes("@");
+
+      if (looksLikeJid) {
+        chat.name = contactName;
+        this.chats.set(chatId, chat);
+
+        try {
+          await prisma.chat.updateMany({
+            where: { id: chatId },
+            data: { name: contactName },
+          });
+          synced++;
+        } catch (err) {
+          logger.error({ err, chatId }, "Failed to sync chat name from contact");
+        }
+      }
+    }
+    if (synced > 0) {
+      logger.info({ synced }, "Synced chat names from contacts");
+    }
   }
 
   // ─── Media Storage ────────────────────────────────────────
