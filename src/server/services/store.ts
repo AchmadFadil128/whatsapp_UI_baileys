@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db/client";
-import type { Chat, Message, Contact, MessageStatus, MessageType } from "@/types";
+import type { Chat, Message, Contact, MessageStatus, MessageType, QuotedMessage } from "@/types";
 import { createLogger } from "@/server/lib/logger";
 
 const logger = createLogger("store");
@@ -257,6 +257,7 @@ class Store {
           text: message.text || null,
           media: message.media ? (message.media as object) : undefined,
           quotedMessageId: message.quotedMessageId || null,
+          quotedMessage: message.quotedMessage ? (message.quotedMessage as object) : undefined,
           fromMe: message.fromMe,
           pushName: message.pushName || null,
           status: message.status || "pending",
@@ -304,6 +305,7 @@ class Store {
         text: m.text || undefined,
         media: m.media as Message["media"],
         quotedMessageId: m.quotedMessageId || undefined,
+        quotedMessage: m.quotedMessage ? (m.quotedMessage as unknown as QuotedMessage) : undefined,
         fromMe: m.fromMe,
         status: (m.status || "pending") as MessageStatus,
         pushName: m.pushName || undefined,
@@ -330,6 +332,7 @@ class Store {
         text: m.text || undefined,
         media: m.media as Message["media"],
         quotedMessageId: m.quotedMessageId || undefined,
+        quotedMessage: m.quotedMessage ? (m.quotedMessage as unknown as QuotedMessage) : undefined,
         fromMe: m.fromMe,
         status: (m.status || "pending") as MessageStatus,
         pushName: m.pushName || undefined,

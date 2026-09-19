@@ -140,6 +140,12 @@ export default function MessageBubble({
           {showSender && !message.fromMe && message.pushName && (
             <div className="message-sender">{message.pushName}</div>
           )}
+          {message.quotedMessage && (
+            <div className="message-quoted">
+              <div className="message-quoted-sender">{message.quotedMessage.sender.split("@")[0]}</div>
+              <div className="message-quoted-text">{message.quotedMessage.text || "Message"}</div>
+            </div>
+          )}
           {renderContent()}
           <div className="message-footer">
             <span className="message-time">{formatTime(message.timestamp)}</span>

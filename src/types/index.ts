@@ -21,6 +21,12 @@ export interface Chat {
   profilePicUrl?: string;
 }
 
+export interface QuotedMessage {
+  id: string;
+  sender: string;
+  text?: string;
+}
+
 export interface Message {
   id: string;
   chatId: string;
@@ -30,6 +36,7 @@ export interface Message {
   text?: string;
   media?: MediaReference;
   quotedMessageId?: string;
+  quotedMessage?: QuotedMessage;
   fromMe: boolean;
   status?: MessageStatus;
   pushName?: string;

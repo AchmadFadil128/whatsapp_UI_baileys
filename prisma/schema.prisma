@@ -32,6 +32,7 @@ model Message {
   text            String?
   media           Json?
   quotedMessageId String?
+  quotedMessage   Json?
   fromMe          Boolean  @default(false)
   pushName        String?
   status          String?

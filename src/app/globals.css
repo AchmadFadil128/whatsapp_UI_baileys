@@ -532,6 +532,31 @@ body {
   color: var(--accent-blue);
 }
 
+.message-quoted {
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 4px solid var(--accent-primary);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.message-quoted-sender {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  margin-bottom: 2px;
+}
+
+.message-quoted-text {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ─── Media Messages ───────────────────────────────────────────── */
 .message-media {
   margin: -4px -6px 4px;

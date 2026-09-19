@@ -6,7 +6,7 @@ import {
   normalizeMessageContent,
   extractMessageContent,
 } from "@whiskeysockets/baileys";
-import type { Message, MessageType, MessageStatus, MediaReference } from "@/types";
+import type { Message, MessageType, MessageStatus, MediaReference, QuotedMessage } from "@/types";
 
 /**
  * Extracts a clean JID (without device suffix) for use as chat/contact ID.
@@ -182,6 +182,37 @@ function extractQuotedMessageId(content: proto.IMessage | undefined): string | u
 }
 
 /**
+ * Extracts full quoted message data if available.
+ */
+function extractQuotedMessage(content: proto.IMessage | undefined): QuotedMessage | undefined {
+  const contextInfo =
+    content?.extendedTextMessage?.contextInfo ||
+    content?.imageMessage?.contextInfo ||
+    content?.videoMessage?.contextInfo ||
+    content?.documentMessage?.contextInfo;
+
+  if (!contextInfo?.stanzaId || !contextInfo?.participant) return undefined;
+
+  let text: string | undefined;
+  if (contextInfo.quotedMessage) {
+    text = extractText(unwrapMessage(contextInfo.quotedMessage));
+    if (!text) {
+      // Fallback: get type if no text available
+      const type = getMessageType(unwrapMessage(contextInfo.quotedMessage));
+      if (type !== "unknown" && type !== "text") {
+        text = `[${type}]`;
+      }
+    }
+  }
+
+  return {
+    id: contextInfo.stanzaId,
+    sender: normalizeJid(contextInfo.participant),
+    text,
+  };
+}
+
+/**
  * Maps Baileys message status codes to internal MessageStatus.
  */
 export function mapMessageStatus(status: number | null | undefined): MessageStatus {
@@ -235,6 +266,7 @@ export function transformMessage(raw: WAMessage): Message | null {
     text: fallbackText,
     media: extractMedia(unwrapped),
     quotedMessageId: extractQuotedMessageId(unwrapped),
+    quotedMessage: extractQuotedMessage(unwrapped),
     fromMe,
     status: mapMessageStatus(raw.status),
     pushName: raw.pushName || undefined,
