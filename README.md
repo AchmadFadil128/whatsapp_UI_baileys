@@ -2,6 +2,10 @@
 
 Aplikasi web client WhatsApp mandiri (*self-hosted*) dengan antarmuka yang menyerupai WhatsApp Web. Dibangun menggunakan **Next.js** di sisi antarmuka, **Baileys** di sisi backend sebagai engine koneksi WhatsApp Web Protocol, **Socket.IO** untuk komunikasi *real-time*, dan **PostgreSQL** + **Prisma ORM** untuk persistensi data pesan, kontak, dan riwayat obrolan.
 
+> [!WARNING]
+> **PERINGATAN & PENAFIAN PENTING (DISCLAIMER):**
+> Proyek ini menggunakan **klien tidak resmi (*unofficial client*)** berbasis library Baileys. Penggunaan klien tidak resmi ini **berpotensi melanggar Ketentuan Layanan (*Terms of Service* / ToS) WhatsApp** dan **berisiko mengakibatkan pemblokiran nomor/akun WhatsApp Anda** secara sementara maupun permanen. Proyek ini dibuat murni untuk tujuan edukasi dan penggunaan pribadi (*personal homelab*). Gunakan dengan risiko Anda sendiri (*use at your own risk*) dan hindari menggunakan nomor telepon utama atau penting Anda.
+
 ---
 
 ## 🏛️ Arsitektur Sistem
@@ -208,4 +212,6 @@ whatsapp_UI_baileys/
 
 ## 📜 Lisensi & Penafian
 
-Proyek ini dibuat untuk tujuan edukasi dan penggunaan pribadi (*personal homelab*). WhatsApp adalah merek dagang terdaftar dari Meta Platforms, Inc. Proyek ini tidak berafiliasi, disponsori, atau didukung secara resmi oleh Meta.
+- **Klien Tidak Resmi & Risiko Pemblokiran**: Proyek ini memakai **klien tidak resmi (*unofficial client*)** melalui library pihak ketiga ([Baileys](https://github.com/WhiskeySockets/Baileys)). Menggunakan klien tidak resmi berpotensi **melanggar Ketentuan Layanan (*Terms of Service* / ToS) WhatsApp** dan memiliki **risiko pemblokiran nomor telepon / akun WhatsApp** Anda (baik sementara maupun permanen). Segala risiko ditanggung sepenuhnya oleh pengguna (*use at your own risk*).
+- **Batasan Tanggung Jawab & Merek Dagang**: Proyek ini dibuat semata-mata untuk tujuan edukasi, penelitian, dan penggunaan pribadi (*personal homelab*). WhatsApp adalah merek dagang terdaftar dari Meta Platforms, Inc. Proyek ini tidak berafiliasi, disponsori, atau didukung secara resmi oleh Meta Platforms, Inc. atau WhatsApp.
+
