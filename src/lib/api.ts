@@ -31,11 +31,20 @@ async function request<T>(
 // ─── WhatsApp Connection ──────────────────────────────────────
 
 export async function getStatus() {
-  return request<{ state: string; qrCode?: string }>("/api/whatsapp/status");
+  return request<{ state: string; qrCode?: string; pairingCode?: string }>(
+    "/api/whatsapp/status"
+  );
 }
 
 export async function connectWhatsApp() {
   return request("/api/whatsapp/connect", { method: "POST" });
+}
+
+export async function requestPairingCode(phoneNumber: string) {
+  return request<{ code: string }>("/api/whatsapp/pair", {
+    method: "POST",
+    body: JSON.stringify({ phoneNumber }),
+  });
 }
 
 export async function disconnectWhatsApp() {

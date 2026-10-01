@@ -3,6 +3,7 @@ export type WhatsAppConnectionState =
   | "disconnected"
   | "connecting"
   | "qr"
+  | "pairing"
   | "connected"
   | "reconnecting"
   | "logged_out"
@@ -83,6 +84,7 @@ export interface Contact {
 export interface ConnectionUpdate {
   state: WhatsAppConnectionState;
   qrCode?: string;
+  pairingCode?: string;
   error?: string;
 }
 

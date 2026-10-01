@@ -42,9 +42,11 @@ export function initSocketServer(
     // Send current connection state immediately
     const currentState = whatsappService.getConnectionState();
     const currentQr = whatsappService.getCurrentQrCode();
+    const currentPairing = whatsappService.getCurrentPairingCode();
     socket.emit("whatsapp:connection", {
       state: currentState,
       qrCode: currentQr || undefined,
+      pairingCode: currentPairing || undefined,
     });
 
     // ─── Client Events ──────────────────────────────────────

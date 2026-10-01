@@ -28,9 +28,12 @@ export default function Home() {
   const {
     connectionState,
     qrCode,
+    pairingCode,
     error,
     isLoading: isConnecting,
+    isPairingLoading,
     connect,
+    requestPairingCode,
     disconnect,
     logout,
   } = useWhatsApp();
@@ -167,10 +170,13 @@ export default function Home() {
       <QRScreen
         connectionState={connectionState}
         qrCode={qrCode}
+        pairingCode={pairingCode}
         error={error}
         isLoading={isConnecting}
+        isPairingLoading={isPairingLoading}
         onConnect={connect}
         onRetry={connect}
+        onRequestPairingCode={requestPairingCode}
       />
     );
   }

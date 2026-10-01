@@ -1014,6 +1014,188 @@ body {
   color: var(--text-primary);
 }
 
+/* ─── Auth Mode Switcher (QR vs Pairing Code) ─────────────────── */
+.auth-mode-tabs {
+  display: flex;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 4px;
+  width: 100%;
+  max-width: 340px;
+  gap: 4px;
+}
+
+.auth-mode-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.auth-mode-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.auth-mode-tab.active {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+
+/* ─── Pairing Form ─────────────────────────────────────────────── */
+.pairing-form {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pairing-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.pairing-input-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.pairing-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.pairing-phone-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.pairing-phone-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+}
+
+.pairing-input-hint {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+/* ─── Pairing Code Badges Display ──────────────────────────────── */
+.pairing-code-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+
+.pairing-code-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.pairing-code-group {
+  display: flex;
+  gap: 6px;
+}
+
+.pairing-code-char {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 46px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1.5px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 1.35rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.2);
+  user-select: all;
+}
+
+.pairing-code-divider {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  margin: 0 2px;
+}
+
+.pairing-code-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.pairing-code-copy-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+  background: rgba(30, 41, 59, 1);
+}
+
+.pairing-code-copy-btn.copied {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+/* ─── Pairing Error Alert ──────────────────────────────────────── */
+.pairing-error-alert {
+  width: 100%;
+  max-width: 360px;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--radius-md);
+  color: #fca5a5;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  text-align: left;
+}
+
 /* ─── Spinner ──────────────────────────────────────────────────── */
 .spinner {
   width: 48px;

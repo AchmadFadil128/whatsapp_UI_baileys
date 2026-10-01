@@ -51,12 +51,18 @@ class WhatsAppService extends EventEmitter {
 
   private rawMessages = new Map<string, WAMessage>();
 
+  private currentPairingCode: string | null = null;
+
   getConnectionState(): WhatsAppConnectionState {
     return this.connectionState;
   }
 
   getCurrentQrCode(): string | null {
     return this.currentQrCode;
+  }
+
+  getCurrentPairingCode(): string | null {
+    return this.currentPairingCode;
   }
 
   isConnected(): boolean {
@@ -195,6 +201,89 @@ class WhatsAppService extends EventEmitter {
   }
 
   /**
+   * Requests a pairing code for linking via phone number instead of QR scan.
+   * If socket is not yet connected or connecting, starts the connection first
+   * and waits for readiness before calling sock.requestPairingCode().
+   *
+   * @param phoneNumber - digits only with country code, no +/spaces/dashes
+   */
+  async requestPairingCode(phoneNumber: string): Promise<string> {
+    const sanitized = phoneNumber.replace(/\D/g, "");
+    if (!sanitized || sanitized.length < 7) {
+      throw new Error("Invalid phone number. Include country code, digits only.");
+    }
+
+    if (this.isConnected()) {
+      throw new Error("Device is already connected to WhatsApp.");
+    }
+
+    // If socket is not yet started or disconnected, start connect()
+    if (
+      !this.socket ||
+      this.connectionState === "disconnected" ||
+      this.connectionState === "logged_out" ||
+      this.connectionState === "error"
+    ) {
+      logger.info("Initializing connection for pairing code request...");
+      await this.connect();
+    }
+
+    // If socket is connecting and waiting for readiness (QR event is the readiness signal in Baileys)
+    if (
+      this.socket &&
+      !this.currentQrCode &&
+      !this.currentPairingCode &&
+      !this.isConnected()
+    ) {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error("Timeout waiting for WhatsApp connection readiness"));
+        }, 30000);
+
+        const onConnection = (update: ConnectionUpdate) => {
+          if (update.qrCode || update.state === "qr") {
+            cleanup();
+            resolve();
+          } else if (update.state === "connected") {
+            cleanup();
+            resolve();
+          } else if (update.state === "error") {
+            cleanup();
+            reject(new Error(update.error || "Connection error while waiting to pair"));
+          }
+        };
+
+        const cleanup = () => {
+          clearTimeout(timeout);
+          this.off("whatsapp:connection", onConnection);
+        };
+
+        this.on("whatsapp:connection", onConnection);
+      });
+    }
+
+    if (!this.socket) {
+      throw new Error("WhatsApp socket not initialized.");
+    }
+
+    if (this.socket.authState.creds.registered) {
+      throw new Error("Device is already registered. No pairing needed.");
+    }
+
+    try {
+      const code = await this.socket.requestPairingCode(sanitized);
+      this.currentPairingCode = code;
+      this.updateState("pairing", undefined, undefined, code);
+      logger.info({ code }, "Pairing code generated");
+      return code;
+    } catch (error) {
+      logger.error(error, "Failed to request pairing code");
+      throw error;
+    }
+  }
+
+  /**
    * Gracefully disconnects without clearing auth state.
    */
   async disconnect(): Promise<void> {
@@ -203,6 +292,7 @@ class WhatsAppService extends EventEmitter {
     await this.cleanupSocket();
     this.reconnectAttempts = 0;
     this.currentQrCode = null;
+    this.currentPairingCode = null;
     this.updateState("disconnected");
   }
 
@@ -224,6 +314,7 @@ class WhatsAppService extends EventEmitter {
     }
     this.reconnectAttempts = 0;
     this.currentQrCode = null;
+    this.currentPairingCode = null;
     this.clearAuthState();
     // Chat history is kept persistent — only auth state is cleared
     this.updateState("logged_out");
@@ -489,6 +580,7 @@ class WhatsAppService extends EventEmitter {
       this.isConnecting = false;
       this.reconnectAttempts = 0;
       this.currentQrCode = null;
+      this.currentPairingCode = null;
       this.clearReconnectTimer();
       this.updateState("connected");
 
@@ -502,6 +594,7 @@ class WhatsAppService extends EventEmitter {
     if (connection === "close") {
       this.isConnecting = false;
       this.currentQrCode = null;
+      this.currentPairingCode = null;
       this.clearReconnectTimer();
 
       if (this.isExplicitDisconnect) {
@@ -803,10 +896,17 @@ class WhatsAppService extends EventEmitter {
   private updateState(
     state: WhatsAppConnectionState,
     qrCode?: string,
-    error?: string
+    error?: string,
+    pairingCode?: string
   ): void {
     this.connectionState = state;
-    const update: ConnectionUpdate = { state, qrCode, error };
+    if (state !== "qr") {
+      this.currentQrCode = null;
+    }
+    if (state !== "pairing") {
+      this.currentPairingCode = null;
+    }
+    const update: ConnectionUpdate = { state, qrCode, error, pairingCode };
     this.emit("whatsapp:connection", update);
     logger.info({ state }, "WhatsApp connection state changed");
   }
