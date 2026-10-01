@@ -10,7 +10,7 @@ import type { Message, MessageEvent, MessageStatusEvent } from "@/types";
  * Fetches paginated messages via REST and listens for realtime events.
  * Supports infinite scroll (load older messages via loadMore).
  */
-export function useMessages(chatId: string | null) {
+export function useMessages(chatId: string | null, targetTimestamp?: number | null) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -34,7 +34,7 @@ export function useMessages(chatId: string | null) {
     async function fetchInitial() {
       setIsLoading(true);
       try {
-        const res = await api.getMessages(chatId!, 50);
+        const res = await api.getMessages(chatId!, 50, undefined, targetTimestamp || undefined);
         if (res.success && res.data) {
           const valid = res.data.filter(
             (m) =>
@@ -52,7 +52,7 @@ export function useMessages(chatId: string | null) {
     }
 
     fetchInitial();
-  }, [chatId]);
+  }, [chatId, targetTimestamp]);
 
   // Realtime message events
   useEffect(() => {

@@ -12,9 +12,11 @@ export async function GET(
   const limit = parseInt(searchParams.get("limit") || "50", 10);
   const beforeParam = searchParams.get("before");
   const before = beforeParam ? parseInt(beforeParam, 10) : undefined;
+  const aroundParam = searchParams.get("around");
+  const around = aroundParam ? parseInt(aroundParam, 10) : undefined;
 
   const decodedChatId = decodeURIComponent(chatId);
-  const messages = await store.getMessages(decodedChatId, limit, before);
+  const messages = await store.getMessages(decodedChatId, limit, before, around);
 
   return NextResponse.json({
     success: true,

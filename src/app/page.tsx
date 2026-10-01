@@ -41,8 +41,9 @@ export default function Home() {
   const { chats, markRead } = useChats();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"chats" | "status" | "channels">("chats");
+  const [targetMessage, setTargetMessage] = useState<{ id: string; timestamp?: number } | null>(null);
   const { messages, isLoading: isLoadingMessages, hasMore, loadMore, appendMessage } =
-    useMessages(activeChatId);
+    useMessages(activeChatId, targetMessage?.timestamp);
 
   const { aliases, setAlias } = useChatAliases();
   const { statuses, isLoading: isLoadingStatuses, deleteStatus, clearAllStatuses } = useStatuses();
@@ -76,9 +77,14 @@ export default function Home() {
   }, [channels, aliases]);
 
   const handleSelectChat = useCallback(
-    (chatId: string) => {
+    (chatId: string, messageId?: string, timestamp?: number) => {
       setActiveChatId(chatId);
       setActiveTab((prev) => (prev === "status" ? "chats" : prev));
+      if (messageId) {
+        setTargetMessage({ id: messageId, timestamp });
+      } else {
+        setTargetMessage(null);
+      }
       // Optimistically clear badge and conditionally tell backend to mark read on WhatsApp
       markRead(chatId);
       if (autoReadReceipts) {
@@ -159,6 +165,7 @@ export default function Home() {
 
   const handleBack = useCallback(() => {
     setActiveChatId(null);
+    setTargetMessage(null);
   }, []);
 
   // Show QR/connection screen when not connected
@@ -244,6 +251,7 @@ export default function Home() {
           messages={messages}
           isLoading={isLoadingMessages}
           hasMore={hasMore}
+          highlightedMessageId={targetMessage?.id}
           onSendMessage={handleSendMessage}
           onLoadMore={loadMore}
           onBack={activeChatId ? handleBack : undefined}

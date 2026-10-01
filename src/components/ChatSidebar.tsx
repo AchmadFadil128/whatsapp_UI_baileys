@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import type { Chat, WhatsAppConnectionState } from "@/types";
+import { useState, useMemo, useEffect } from "react";
+import type { Chat, WhatsAppConnectionState, SearchMessageResult } from "@/types";
+import * as api from "@/lib/api";
 
 interface ChatSidebarProps {
   chats: Chat[];
@@ -9,7 +10,7 @@ interface ChatSidebarProps {
   connectionState: WhatsAppConnectionState;
   activeTab: "chats" | "status" | "channels";
   onTabChange: (tab: "chats" | "status" | "channels") => void;
-  onSelectChat: (chatId: string) => void;
+  onSelectChat: (chatId: string, messageId?: string, timestamp?: number) => void;
   onDisconnect: () => void;
   onLogout: () => void;
   soundEnabled?: boolean;
@@ -56,6 +57,66 @@ export default function ChatSidebar({
   const [showArchived, setShowArchived] = useState(false);
   const [contextMenuChatId, setContextMenuChatId] = useState<string | null>(null);
 
+  // Message search state (triggered by % prefix)
+  const isMessageSearch = search.startsWith("%");
+  const messageSearchQuery = isMessageSearch ? search.slice(1).trim() : "";
+  const [messageResults, setMessageResults] = useState<SearchMessageResult[]>([]);
+  const [isSearchingMessages, setIsSearchingMessages] = useState(false);
+  const [searchScope, setSearchScope] = useState<"all" | "current">("all");
+
+  useEffect(() => {
+    if (!search.startsWith("%")) {
+      setMessageResults([]);
+      setIsSearchingMessages(false);
+      return;
+    }
+
+    const query = search.slice(1).trim();
+    if (!query) {
+      setMessageResults([]);
+      setIsSearchingMessages(false);
+      return;
+    }
+
+    setIsSearchingMessages(true);
+    const timer = setTimeout(async () => {
+      try {
+        const targetChatId =
+          searchScope === "current" && activeChatId ? activeChatId : undefined;
+        const res = await api.searchMessages(query, targetChatId);
+        if (res.success && res.data) {
+          setMessageResults(res.data);
+        } else {
+          setMessageResults([]);
+        }
+      } catch (err) {
+        console.error("Failed to search messages:", err);
+        setMessageResults([]);
+      } finally {
+        setIsSearchingMessages(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [search, searchScope, activeChatId]);
+
+  function renderHighlightedSnippet(text: string, query: string) {
+    if (!query || !text) return text;
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`(${escaped})`, "gi");
+    const parts = text.split(regex);
+
+    return parts.map((part, index) =>
+      regex.test(part) ? (
+        <mark key={index} className="search-match">
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
+  }
+
   const activeChats = useMemo(() => {
     return chats.filter(c => !c.isArchived);
   }, [chats]);
@@ -66,14 +127,14 @@ export default function ChatSidebar({
 
   const filteredChats = useMemo(() => {
     const listToFilter = showArchived ? archivedChats : activeChats;
-    if (!search.trim()) return listToFilter;
+    if (!search.trim() || isMessageSearch) return listToFilter;
     const q = search.toLowerCase();
     return listToFilter.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.lastMessage?.toLowerCase().includes(q)
     );
-  }, [activeChats, archivedChats, search, showArchived]);
+  }, [activeChats, archivedChats, search, showArchived, isMessageSearch]);
 
   function formatTimestamp(ts: number): string {
     if (!ts) return "";
@@ -367,13 +428,79 @@ export default function ChatSidebar({
 
       {/* Search */}
       <div className="sidebar-search">
-        <input
-          type="text"
-          placeholder={showArchived ? "Search archived chats" : "Search or start new chat"}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="sidebar-search-inner">
+          <span className="sidebar-search-icon">
+            {isMessageSearch ? "💬" : "🔍"}
+          </span>
+          <input
+            type="text"
+            placeholder={
+              showArchived
+                ? "Search archived chats"
+                : "Search chats (or % for messages)..."
+            }
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              type="button"
+              className="sidebar-search-clear"
+              onClick={() => setSearch("")}
+              title="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        {/* Message search mode banner & scope toggle */}
+        {isMessageSearch && (
+          <div className="search-mode-banner">
+            <div className="search-mode-indicator">
+              <span className="search-mode-badge">💬 Pesan</span>
+              {messageSearchQuery && (
+                <span className="search-mode-query">&quot;{messageSearchQuery}&quot;</span>
+              )}
+            </div>
+            {activeChatId && (
+              <div className="search-scope-toggle">
+                <button
+                  type="button"
+                  className={`scope-pill ${searchScope === "all" ? "active" : ""}`}
+                  onClick={() => setSearchScope("all")}
+                >
+                  Semua
+                </button>
+                <button
+                  type="button"
+                  className={`scope-pill ${searchScope === "current" ? "active" : ""}`}
+                  onClick={() => setSearchScope("current")}
+                >
+                  Chat Ini
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Suggestion prompt to search message content when doing normal search */}
+      {!isMessageSearch && search.trim() && (
+        <div
+          className="search-switch-prompt"
+          onClick={() => setSearch("%" + search.trim())}
+          role="button"
+          tabIndex={0}
+        >
+          <span style={{ fontSize: "1rem" }}>💬</span>
+          <div className="search-switch-prompt-text">
+            <span>Cari di dalam pesan: <strong>&quot;{search.trim()}&quot;</strong></span>
+            <span className="search-switch-prompt-sub">Ketik <code>%{search.trim()}</code></span>
+          </div>
+          <span style={{ marginLeft: "auto", opacity: 0.7 }}>→</span>
+        </div>
+      )}
 
       {/* Archive Toggle */}
       {activeTab === "chats" && archivedChats.length > 0 && !search.trim() && (
@@ -403,7 +530,95 @@ export default function ChatSidebar({
 
       {/* Chat List */}
       <div className="chat-list" style={{ position: "relative" }}>
-        {filteredChats.length === 0 ? (
+        {isMessageSearch ? (
+          /* ─── Message Search Mode Rendering ─── */
+          !messageSearchQuery ? (
+            <div className="search-guide-box">
+              <div className="search-guide-icon">💬</div>
+              <h4>Cari di Dalam Pesan Percakapan</h4>
+              <p>
+                Ketik kata kunci setelah tanda <strong>%</strong> untuk mencari isi pesan di riwayat obrolan.
+              </p>
+              <div className="search-chips">
+                <span className="search-chips-label">Contoh:</span>
+                {["%halo", "%rekening", "%link", "%urgent", "%meeting"].map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    className="search-chip"
+                    onClick={() => setSearch(chip)}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : isSearchingMessages ? (
+            <div className="search-loading-box">
+              <div className="spinner spinner-sm" />
+              <span>Mencari di dalam percakapan...</span>
+            </div>
+          ) : messageResults.length === 0 ? (
+            <div className="search-empty-box">
+              <div style={{ fontSize: "2rem", marginBottom: "8px" }}>🔎</div>
+              <p style={{ fontWeight: 500 }}>Tidak ada pesan ditemukan</p>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-tertiary)" }}>
+                Tidak ada percakapan yang cocok dengan &quot;%{messageSearchQuery}&quot;
+              </p>
+            </div>
+          ) : (
+            <div className="message-search-results">
+              <div className="search-results-header">
+                <span>Ditemukan {messageResults.length} pesan:</span>
+              </div>
+              {messageResults.map((msg) => {
+                const chatObj = chats.find((c) => c.id === msg.chatId);
+                const chatDisplayName = chatObj?.name || msg.chatName || msg.chatId;
+
+                return (
+                  <div
+                    key={msg.id}
+                    className={`chat-item message-search-item ${
+                      activeChatId === msg.chatId ? "active" : ""
+                    }`}
+                    onClick={() => onSelectChat(msg.chatId, msg.id, msg.timestamp)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") onSelectChat(msg.chatId, msg.id, msg.timestamp);
+                    }}
+                  >
+                    <div className="chat-avatar">
+                      {chatObj?.profilePicUrl ? (
+                        <img src={chatObj.profilePicUrl} alt={chatDisplayName} />
+                      ) : (
+                        getInitials(chatDisplayName)
+                      )}
+                    </div>
+                    <div className="chat-info">
+                      <div className="chat-info-top">
+                        <span className="chat-name">{chatDisplayName}</span>
+                        <span className="chat-timestamp">
+                          {formatTimestamp(msg.timestamp)}
+                        </span>
+                      </div>
+                      <div className="chat-info-bottom">
+                        <span className="chat-last-message message-search-snippet">
+                          {msg.fromMe ? (
+                            <span className="sender-tag from-me">Anda: </span>
+                          ) : msg.pushName ? (
+                            <span className="sender-tag other">{msg.pushName}: </span>
+                          ) : null}
+                          {renderHighlightedSnippet(msg.text || "", messageSearchQuery)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        ) : filteredChats.length === 0 ? (
           <div
             style={{
               padding: "40px 20px",
@@ -425,11 +640,19 @@ export default function ChatSidebar({
                       onSelectChat(jid);
                       setSearch("");
                     }}
-                    style={{ fontSize: "0.85rem", width: "100%" }}
+                    style={{ fontSize: "0.85rem", width: "100%", marginBottom: "8px" }}
                   >
                     💬 Chat with +{search.trim().replace(/\D/g, "")}
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setSearch("%" + search.trim())}
+                  style={{ fontSize: "0.85rem", width: "100%" }}
+                >
+                  💬 Cari &quot;{search.trim()}&quot; di dalam pesan (%{search.trim()})
+                </button>
               </div>
             ) : connectionState === "connected" ? (
               "No chats yet — waiting for sync..."

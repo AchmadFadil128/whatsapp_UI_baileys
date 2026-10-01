@@ -10,6 +10,7 @@ interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
   hasMore: boolean;
+  highlightedMessageId?: string | null;
   onSendMessage: (text: string, file?: File, replyToMessageId?: string) => void;
   onLoadMore: () => void;
   onBack?: () => void;
@@ -25,6 +26,7 @@ export default function ChatWindow({
   messages,
   isLoading,
   hasMore,
+  highlightedMessageId,
   onSendMessage,
   onLoadMore,
   onBack,
@@ -38,9 +40,11 @@ export default function ChatWindow({
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isFirstLoad = useRef(true);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages (unless jumping to a specific highlighted message)
   useEffect(() => {
     if (messages.length > 0) {
+      if (highlightedMessageId) return;
+
       // On first load or when a new message arrives, scroll to bottom
       if (isFirstLoad.current) {
         messagesEndRef.current?.scrollIntoView();
@@ -50,7 +54,20 @@ export default function ChatWindow({
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
       }
     }
-  }, [messages.length]);
+  }, [messages.length, highlightedMessageId]);
+
+  // Scroll to highlighted message when loaded
+  useEffect(() => {
+    if (highlightedMessageId && messages.length > 0) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`msg-${highlightedMessageId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightedMessageId, messages]);
 
   // Reset first load flag and reply state when chat changes
   useEffect(() => {
@@ -263,6 +280,7 @@ export default function ChatWindow({
               message={item.message}
               showSender={isGroup}
               onReply={() => setReplyingTo(item.message)}
+              isHighlighted={item.message.id === highlightedMessageId}
             />
           );
         })}

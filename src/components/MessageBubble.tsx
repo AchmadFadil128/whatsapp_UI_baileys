@@ -7,6 +7,7 @@ interface MessageBubbleProps {
   message: Message;
   showSender?: boolean;
   onReply?: () => void;
+  isHighlighted?: boolean;
 }
 
 /**
@@ -14,7 +15,12 @@ interface MessageBubbleProps {
  * timestamp, and delivery status indicators.
  * Supports inline image rendering with click-to-enlarge.
  */
-export default function MessageBubble({ message, showSender = false, onReply }: MessageBubbleProps) {
+export default function MessageBubble({
+  message,
+  showSender = false,
+  onReply,
+  isHighlighted = false,
+}: MessageBubbleProps) {
   // Do not display unsupported messages or unsupported events
   if (
     message.type === "unknown" ||
@@ -209,7 +215,7 @@ export default function MessageBubble({ message, showSender = false, onReply }: 
 
   return (
     <>
-      <div className={`message-row ${direction}`}>
+      <div id={`msg-${message.id}`} className={`message-row ${direction} ${isHighlighted ? "highlighted" : ""}`}>
         {onReply && (
           <div className="message-action-menu">
             <button className="reply-action-btn" onClick={onReply} title="Reply">

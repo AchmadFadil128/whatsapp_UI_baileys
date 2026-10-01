@@ -41,6 +41,11 @@ export interface Message {
   fromMe: boolean;
   status?: MessageStatus;
   pushName?: string;
+  chatName?: string;
+}
+
+export interface SearchMessageResult extends Message {
+  chatName?: string;
 }
 
 export type MessageType =

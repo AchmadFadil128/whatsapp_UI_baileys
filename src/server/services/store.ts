@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db/client";
-import type { Chat, Message, Contact, MessageStatus, MessageType, QuotedMessage } from "@/types";
+import type { Chat, Message, Contact, MessageStatus, MessageType, QuotedMessage, SearchMessageResult } from "@/types";
 import { createLogger } from "@/server/lib/logger";
 
 const logger = createLogger("store");
@@ -309,22 +309,48 @@ class Store {
     }
   }
 
-  async getMessages(chatId: string, limit = 50, before?: number): Promise<Message[]> {
+  async getMessages(
+    chatId: string,
+    limit = 50,
+    before?: number,
+    around?: number
+  ): Promise<Message[]> {
     try {
-      const whereClause: {
-        chatId: string;
-        timestamp?: { lt: bigint };
-      } = { chatId };
+      let dbMessages;
 
-      if (before) {
-        whereClause.timestamp = { lt: BigInt(before) };
+      if (around) {
+        const halfLimit = Math.floor(limit / 2);
+        const [older, newer] = await Promise.all([
+          prisma.message.findMany({
+            where: { chatId, timestamp: { lte: BigInt(around) } },
+            orderBy: { timestamp: "desc" },
+            take: halfLimit,
+          }),
+          prisma.message.findMany({
+            where: { chatId, timestamp: { gt: BigInt(around) } },
+            orderBy: { timestamp: "asc" },
+            take: Math.ceil(limit / 2),
+          }),
+        ]);
+        const merged = [...older, ...newer];
+        merged.sort((a, b) => (a.timestamp > b.timestamp ? -1 : 1));
+        dbMessages = merged;
+      } else {
+        const whereClause: {
+          chatId: string;
+          timestamp?: { lt: bigint };
+        } = { chatId };
+
+        if (before) {
+          whereClause.timestamp = { lt: BigInt(before) };
+        }
+
+        dbMessages = await prisma.message.findMany({
+          where: whereClause,
+          orderBy: { timestamp: "desc" },
+          take: limit,
+        });
       }
-
-      const dbMessages = await prisma.message.findMany({
-        where: whereClause,
-        orderBy: { timestamp: "desc" },
-        take: limit,
-      });
 
       // Filter out unsupported messages or events, reverse to chronological ascending order
       return dbMessages
@@ -352,6 +378,84 @@ class Store {
         }));
     } catch (err) {
       logger.error({ err, chatId }, "Failed to query messages from database");
+      return [];
+    }
+  }
+
+  /**
+   * Searches message content across all chats or within a specific chat.
+   */
+  async searchMessages(
+    query: string,
+    options?: { chatId?: string; limit?: number }
+  ): Promise<SearchMessageResult[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    const limit = Math.min(Math.max(options?.limit || 50, 1), 100);
+
+    try {
+      const whereClause: {
+        text: { contains: string; mode: "insensitive" };
+        type: { notIn: string[] };
+        chatId: { not: string; equals?: string };
+      } = {
+        text: { contains: trimmed, mode: "insensitive" },
+        type: { notIn: ["unknown", "reaction"] },
+        chatId: {
+          not: "status@broadcast",
+          ...(options?.chatId ? { equals: options.chatId } : {}),
+        },
+      };
+
+      const dbMessages = await prisma.message.findMany({
+        where: whereClause,
+        orderBy: { timestamp: "desc" },
+        take: limit,
+        include: {
+          chat: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      return dbMessages
+        .filter(
+          (m) =>
+            m.text !== "Unsupported message" &&
+            !m.text?.startsWith("[Event:")
+        )
+        .map((m) => {
+          const cachedChat = this.chats.get(m.chatId);
+          const contactName = this.getContactName(m.chatId);
+          const chatName =
+            cachedChat?.name ||
+            m.chat?.name ||
+            contactName ||
+            m.pushName ||
+            m.chatId.split("@")[0];
+
+          return {
+            id: m.id,
+            chatId: m.chatId,
+            senderId: m.senderId,
+            timestamp: Number(m.timestamp),
+            type: m.type as MessageType,
+            text: m.text || undefined,
+            media: m.media as Message["media"],
+            quotedMessageId: m.quotedMessageId || undefined,
+            quotedMessage: m.quotedMessage ? (m.quotedMessage as unknown as QuotedMessage) : undefined,
+            fromMe: m.fromMe,
+            status: (m.status || "pending") as MessageStatus,
+            pushName: m.pushName || undefined,
+            chatName,
+          };
+        });
+    } catch (err) {
+      logger.error({ err, query: trimmed }, "Failed to search messages in database");
       return [];
     }
   }

@@ -1,4 +1,4 @@
-import type { ApiResponse, Chat, Message, SendMessageRequest } from "@/types";
+import type { ApiResponse, Chat, Message, SendMessageRequest, SearchMessageResult } from "@/types";
 
 const BASE_URL = "";
 
@@ -87,13 +87,25 @@ export async function muteChat(chatId: string, isMuted: boolean) {
 export async function getMessages(
   chatId: string,
   limit = 50,
-  before?: number
+  before?: number,
+  around?: number
 ) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (before) params.set("before", String(before));
+  if (around) params.set("around", String(around));
   return request<Message[]>(
     `/api/chats/${encodeURIComponent(chatId)}/messages?${params}`
   );
+}
+
+export async function searchMessages(
+  query: string,
+  chatId?: string,
+  limit = 50
+) {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  if (chatId) params.set("chatId", chatId);
+  return request<SearchMessageResult[]>(`/api/messages/search?${params}`);
 }
 
 export async function sendMessage(chatId: string, text: string, replyToMessageId?: string) {
