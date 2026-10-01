@@ -78,7 +78,17 @@ export default function ChatWindow({
     const result: Array<{ type: "date"; label: string } | { type: "message"; message: Message }> = [];
     let lastDate = "";
 
-    for (const msg of messages) {
+    const validMessages = messages.filter(
+      (msg) =>
+        msg &&
+        msg.type !== "unknown" &&
+        msg.type !== "reaction" &&
+        Boolean(msg.type) &&
+        msg.text !== "Unsupported message" &&
+        !msg.text?.startsWith("[Event:")
+    );
+
+    for (const msg of validMessages) {
       const date = new Date(msg.timestamp * 1000);
       const dateStr = date.toLocaleDateString([], {
         year: "numeric",

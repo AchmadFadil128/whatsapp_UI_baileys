@@ -108,6 +108,18 @@ export default function ChatSidebar({
     });
   }
 
+  function formatLastMessage(lastMessage?: string): string {
+    if (!lastMessage) return "\u00A0";
+    if (
+      lastMessage.startsWith("[Event:") ||
+      lastMessage === "[unknown]" ||
+      lastMessage === "Unsupported message"
+    ) {
+      return "\u00A0";
+    }
+    return lastMessage;
+  }
+
   function getInitials(name: string): string {
     return name
       .split(" ")
@@ -460,7 +472,7 @@ export default function ChatSidebar({
                 <div className="chat-info-bottom">
                   <span className="chat-last-message" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                     {chat.isMuted && <span style={{ fontSize: "0.8rem", color: "var(--text-tertiary)" }}>🔇</span>}
-                    {chat.lastMessage || "\u00A0"}
+                    {formatLastMessage(chat.lastMessage)}
                   </span>
                   {chat.unreadCount > 0 && (
                     <span className="chat-unread-badge" style={{ background: chat.isMuted ? "var(--text-tertiary)" : "var(--accent-teal)" }}>

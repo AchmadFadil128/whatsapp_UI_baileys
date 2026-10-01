@@ -128,11 +128,16 @@ export function useNotifications({
       // Do not notify for user's own sent messages
       if (message.fromMe) return;
 
-      // Do not notify for status broadcasts, channels, or reactions
+      // Do not notify for status broadcasts, channels, reactions, or unsupported messages/events
       const isStatus = message.chatId === "status@broadcast";
       const isChannel = message.chatId.endsWith("@newsletter");
       const isReaction = message.type === "reaction";
-      if (isStatus || isChannel || isReaction) return;
+      const isUnsupported =
+        message.type === "unknown" ||
+        !message.type ||
+        message.text === "Unsupported message" ||
+        message.text?.startsWith("[Event:");
+      if (isStatus || isChannel || isReaction || isUnsupported) return;
 
       const currentActiveId = activeChatIdRef.current;
       const isCurrentChat = currentActiveId === message.chatId;

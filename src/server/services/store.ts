@@ -96,9 +96,17 @@ class Store {
   }
 
   getChats(): Chat[] {
-    return Array.from(this.chats.values()).sort(
-      (a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp
-    );
+    return Array.from(this.chats.values())
+      .map((c) => ({
+        ...c,
+        lastMessage:
+          c.lastMessage?.startsWith("[Event:") ||
+          c.lastMessage === "Unsupported message" ||
+          c.lastMessage === "[unknown]"
+            ? ""
+            : c.lastMessage,
+      }))
+      .sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
   }
 
   async getChatsFromDb(): Promise<Chat[]> {
@@ -109,7 +117,12 @@ class Store {
       return dbChats.map((c) => ({
         id: c.id,
         name: c.name,
-        lastMessage: c.lastMessage || "",
+        lastMessage:
+          c.lastMessage?.startsWith("[Event:") ||
+          c.lastMessage === "Unsupported message" ||
+          c.lastMessage === "[unknown]"
+            ? ""
+            : c.lastMessage || "",
         lastMessageTimestamp: Number(c.lastMessageTimestamp),
         unreadCount: c.unreadCount,
         isGroup: c.isGroup,
@@ -123,6 +136,15 @@ class Store {
   }
 
   async updateChatLastMessage(chatId: string, message: Message): Promise<void> {
+    if (
+      message.type === "unknown" ||
+      message.type === "reaction" ||
+      message.text?.startsWith("[Event:") ||
+      message.text === "Unsupported message"
+    ) {
+      return;
+    }
+
     const lastMessageText = message.text || `[${message.type}]`;
     const lastTimestamp = message.timestamp;
 
@@ -227,6 +249,15 @@ class Store {
   // ─── Messages ─────────────────────────────────────────────
 
   async addMessage(message: Message): Promise<void> {
+    if (
+      message.type === "unknown" ||
+      message.type === "reaction" ||
+      message.text?.startsWith("[Event:") ||
+      message.text === "Unsupported message"
+    ) {
+      return;
+    }
+
     try {
       // Ensure parent chat exists in database before inserting foreign-key message
       const chatExists = await prisma.chat.findUnique({
@@ -295,21 +326,30 @@ class Store {
         take: limit,
       });
 
-      // Reverse so messages are in chronological ascending order
-      return dbMessages.reverse().map((m) => ({
-        id: m.id,
-        chatId: m.chatId,
-        senderId: m.senderId,
-        timestamp: Number(m.timestamp),
-        type: m.type as MessageType,
-        text: m.text || undefined,
-        media: m.media as Message["media"],
-        quotedMessageId: m.quotedMessageId || undefined,
-        quotedMessage: m.quotedMessage ? (m.quotedMessage as unknown as QuotedMessage) : undefined,
-        fromMe: m.fromMe,
-        status: (m.status || "pending") as MessageStatus,
-        pushName: m.pushName || undefined,
-      }));
+      // Filter out unsupported messages or events, reverse to chronological ascending order
+      return dbMessages
+        .filter(
+          (m) =>
+            m.type !== "unknown" &&
+            m.type !== "reaction" &&
+            m.text !== "Unsupported message" &&
+            !m.text?.startsWith("[Event:")
+        )
+        .reverse()
+        .map((m) => ({
+          id: m.id,
+          chatId: m.chatId,
+          senderId: m.senderId,
+          timestamp: Number(m.timestamp),
+          type: m.type as MessageType,
+          text: m.text || undefined,
+          media: m.media as Message["media"],
+          quotedMessageId: m.quotedMessageId || undefined,
+          quotedMessage: m.quotedMessage ? (m.quotedMessage as unknown as QuotedMessage) : undefined,
+          fromMe: m.fromMe,
+          status: (m.status || "pending") as MessageStatus,
+          pushName: m.pushName || undefined,
+        }));
     } catch (err) {
       logger.error({ err, chatId }, "Failed to query messages from database");
       return [];

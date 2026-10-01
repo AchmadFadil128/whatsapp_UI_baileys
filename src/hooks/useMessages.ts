@@ -36,7 +36,14 @@ export function useMessages(chatId: string | null) {
       try {
         const res = await api.getMessages(chatId!, 50);
         if (res.success && res.data) {
-          setMessages(res.data);
+          const valid = res.data.filter(
+            (m) =>
+              m.type !== "unknown" &&
+              m.type !== "reaction" &&
+              m.text !== "Unsupported message" &&
+              !m.text?.startsWith("[Event:")
+          );
+          setMessages(valid);
           setHasMore(res.data.length >= 50);
         }
       } finally {
@@ -55,6 +62,15 @@ export function useMessages(chatId: string | null) {
 
     function onMessageReceived(data: MessageEvent) {
       if (data.message.chatId === chatId) {
+        if (
+          data.message.type === "unknown" ||
+          data.message.type === "reaction" ||
+          data.message.text === "Unsupported message" ||
+          data.message.text?.startsWith("[Event:")
+        ) {
+          return;
+        }
+
         setMessages((prev) => {
           // Deduplicate
           if (prev.some((m) => m.id === data.message.id)) return prev;
@@ -93,10 +109,17 @@ export function useMessages(chatId: string | null) {
     try {
       const res = await api.getMessages(chatId, 50, oldestMessage.timestamp);
       if (res.success && res.data) {
+        const valid = res.data.filter(
+          (m) =>
+            m.type !== "unknown" &&
+            m.type !== "reaction" &&
+            m.text !== "Unsupported message" &&
+            !m.text?.startsWith("[Event:")
+        );
         setMessages((prev) => {
           // Deduplicate and prepend
           const existingIds = new Set(prev.map((m) => m.id));
-          const newMessages = res.data!.filter((m) => !existingIds.has(m.id));
+          const newMessages = valid.filter((m) => !existingIds.has(m.id));
           return [...newMessages, ...prev];
         });
         setHasMore(res.data.length >= 50);
@@ -107,6 +130,14 @@ export function useMessages(chatId: string | null) {
   }, [chatId, isLoading, hasMore, messages]);
 
   const appendMessage = useCallback((msg: Message) => {
+    if (
+      msg.type === "unknown" ||
+      msg.type === "reaction" ||
+      msg.text === "Unsupported message" ||
+      msg.text?.startsWith("[Event:")
+    ) {
+      return;
+    }
     setMessages((prev) => {
       if (prev.some((m) => m.id === msg.id)) return prev;
       return [...prev, msg];

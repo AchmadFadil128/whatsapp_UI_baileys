@@ -93,6 +93,9 @@ function getMessageType(content: proto.IMessage | undefined): MessageType {
   if (content.pollCreationMessage || content.pollCreationMessageV2 || content.pollCreationMessageV3) {
     return "poll";
   }
+  if (content.protocolMessage && (content.protocolMessage.type === 0 || content.protocolMessage.type === 14)) {
+    return "text";
+  }
 
   return "unknown";
 }
@@ -241,23 +244,33 @@ export function transformMessage(raw: WAMessage): Message | null {
   const key: WAMessageKey | undefined | null = raw.key;
   if (!key?.id || !key.remoteJid) return null;
 
+  // Filter out unsupported messageStubType events (e.g. group changes, call events, system stubs)
+  if (raw.messageStubType) {
+    return null;
+  }
+
+  const unwrapped = unwrapMessage(raw.message);
+  if (!unwrapped) return null;
+
+  const type = getMessageType(unwrapped);
+
+  // Filter out unknown/unsupported message types and reactions
+  if (type === "unknown" || type === "reaction") {
+    return null;
+  }
+
+  const text = extractText(unwrapped);
+
+  // Ignore empty text messages with no text content
+  if (type === "text" && !text) {
+    return null;
+  }
+
   const chatId = normalizeJid(key.remoteJid);
   const fromMe = key.fromMe ?? false;
   const senderId = fromMe
     ? "me"
     : normalizeJid(key.participant || key.remoteJid);
-
-  const unwrapped = unwrapMessage(raw.message);
-  const type = getMessageType(unwrapped);
-  const text = extractText(unwrapped);
-
-  // If no text was extracted and type is still unknown, check messageStubType
-  let fallbackText = text;
-  if (!fallbackText && type === "unknown") {
-    if (raw.messageStubType) {
-      fallbackText = `[Event: ${raw.messageStubType}]`;
-    }
-  }
 
   return {
     id: key.id,
@@ -265,7 +278,7 @@ export function transformMessage(raw: WAMessage): Message | null {
     senderId,
     timestamp: Number(raw.messageTimestamp) || Math.floor(Date.now() / 1000),
     type,
-    text: fallbackText,
+    text,
     media: extractMedia(unwrapped),
     quotedMessageId: extractQuotedMessageId(unwrapped),
     quotedMessage: extractQuotedMessage(unwrapped),

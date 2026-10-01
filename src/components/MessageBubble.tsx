@@ -15,6 +15,17 @@ interface MessageBubbleProps {
  * Supports inline image rendering with click-to-enlarge.
  */
 export default function MessageBubble({ message, showSender = false, onReply }: MessageBubbleProps) {
+  // Do not display unsupported messages or unsupported events
+  if (
+    message.type === "unknown" ||
+    message.type === "reaction" ||
+    !message.type ||
+    message.text === "Unsupported message" ||
+    message.text?.startsWith("[Event:")
+  ) {
+    return null;
+  }
+
   const direction = message.fromMe ? "sent" : "received";
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -67,15 +78,11 @@ export default function MessageBubble({ message, showSender = false, onReply }: 
       case "contact":
         return <div className="message-text">👤 {message.text || "Contact card"}</div>;
       case "reaction":
-        return <div className="message-text">{message.text}</div>;
+        return null;
       case "poll":
         return <div className="message-text">{message.text || "📊 Poll"}</div>;
       default:
-        return (
-          <div className="message-text">
-            {message.text || "Unsupported message"}
-          </div>
-        );
+        return null;
     }
   }
 
