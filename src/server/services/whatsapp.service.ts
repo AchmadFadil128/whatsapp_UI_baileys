@@ -501,14 +501,15 @@ class WhatsAppService extends EventEmitter {
     try {
       const buffer = await downloadMediaMessage(raw, "buffer", {});
 
-      // Extract mimetype from the message content
+      // Extract mimetype from unwrapped message content
+      const unwrapped = unwrapMessage(raw.message);
       const content =
-        raw.message?.imageMessage ||
-        raw.message?.ptvMessage ||
-        raw.message?.videoMessage ||
-        raw.message?.audioMessage ||
-        raw.message?.documentMessage ||
-        raw.message?.stickerMessage;
+        unwrapped?.imageMessage ||
+        unwrapped?.ptvMessage ||
+        unwrapped?.videoMessage ||
+        unwrapped?.audioMessage ||
+        unwrapped?.documentMessage ||
+        unwrapped?.stickerMessage;
 
       const mimetype = content?.mimetype || "application/octet-stream";
       const mediaBuffer = buffer as Buffer;
@@ -518,7 +519,7 @@ class WhatsAppService extends EventEmitter {
 
       return { buffer: mediaBuffer, mimetype };
     } catch (error) {
-      logger.error(error, "Failed to download media");
+      logger.error({ error, messageId }, "Failed to download media via Baileys");
       return null;
     }
   }
@@ -920,6 +921,7 @@ class WhatsAppService extends EventEmitter {
    * Persists a status permanently: saves the message and eagerly downloads
    * its media into the database, because WhatsApp media URLs expire after
    * ~24h and raw messages only live in memory.
+   * Includes retry mechanism for media that may be pending decryption.
    */
   private persistStatus(raw: WAMessage, message: Message): void {
     store.addMessage(message).catch((err) => {
@@ -928,18 +930,32 @@ class WhatsAppService extends EventEmitter {
 
     if (!message.media) return;
 
-    this.downloadMedia(message.id)
-      .then((result) => {
-        if (!result) {
+    // Retry downloading media up to 3 times (immediate, 3s, 10s)
+    const tryDownload = async (attempt: number) => {
+      try {
+        const result = await this.downloadMedia(message.id);
+        if (result) {
+          logger.info({ messageId: message.id, attempt }, "Successfully persisted status media");
+          return;
+        }
+
+        if (attempt < 3) {
+          const delay = attempt === 1 ? 3000 : 10000;
+          setTimeout(() => {
+            tryDownload(attempt + 1);
+          }, delay);
+        } else {
           logger.warn(
             { messageId: message.id, hasRaw: !!raw.message },
-            "Status media could not be persisted"
+            "Status media could not be persisted after multiple attempts"
           );
         }
-      })
-      .catch((err) => {
-        logger.error({ err, messageId: message.id }, "Failed to persist status media");
-      });
+      } catch (err) {
+        logger.error({ err, messageId: message.id, attempt }, "Failed to persist status media");
+      }
+    };
+
+    tryDownload(1);
   }
 
   private clearAuthState(): void {

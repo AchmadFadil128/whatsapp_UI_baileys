@@ -22,6 +22,111 @@ interface StatusGroup {
   latestTimestamp: number;
 }
 
+function StatusDetailImage({
+  messageId,
+  caption,
+  text,
+  onClick,
+}: {
+  messageId: string;
+  caption?: string;
+  text?: string;
+  onClick: () => void;
+}) {
+  const [error, setError] = useState(false);
+
+  if (error) {
+    return (
+      <div className="status-detail-text-content status-media-fallback">
+        <div className="status-media-fallback-icon">📷</div>
+        <div className="status-media-fallback-title">Media tidak tersedia</div>
+        <div className="status-media-fallback-desc">
+          {caption || text || "Media status telah kedaluwarsa atau belum tersimpan"}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={`/api/media/${messageId}`}
+      alt={caption || text || "Status photo"}
+      className="status-detail-media"
+      loading="lazy"
+      onError={() => setError(true)}
+      onClick={onClick}
+    />
+  );
+}
+
+function StatusDetailVideo({
+  messageId,
+  caption,
+  text,
+}: {
+  messageId: string;
+  caption?: string;
+  text?: string;
+}) {
+  const [error, setError] = useState(false);
+
+  if (error) {
+    return (
+      <div className="status-detail-text-content status-media-fallback">
+        <div className="status-media-fallback-icon">🎥</div>
+        <div className="status-media-fallback-title">Video tidak tersedia</div>
+        <div className="status-media-fallback-desc">
+          {caption || text || "Media video telah kedaluwarsa atau belum tersimpan"}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <video
+      src={`/api/media/${messageId}`}
+      controls
+      className="status-detail-media"
+      preload="metadata"
+      onError={() => setError(true)}
+    />
+  );
+}
+
+function StatusThumbnail({ message }: { message: Message }) {
+  const [error, setError] = useState(false);
+
+  if (error || (message.type !== "image" && message.type !== "video")) {
+    return (
+      <div className="status-grid-text-thumb">
+        <span>{(message.text || message.media?.caption || (error ? "📷 Media kedaluwarsa" : "[Status]")).slice(0, 80)}</span>
+      </div>
+    );
+  }
+
+  if (message.type === "image") {
+    return (
+      <img
+        src={`/api/media/${message.id}`}
+        alt={message.media?.caption || "Status"}
+        loading="lazy"
+        onError={() => setError(true)}
+      />
+    );
+  }
+
+  return (
+    <div className="status-grid-video-thumb">
+      <video
+        src={`/api/media/${message.id}`}
+        preload="metadata"
+        onError={() => setError(true)}
+      />
+      <div className="status-grid-play-icon">▶</div>
+    </div>
+  );
+}
+
 /**
  * Status view — WhatsApp Stories-like grid layout.
  * Groups statuses by sender, shows thumbnails per contact.
@@ -226,20 +331,18 @@ export default function StatusView({
 
                 {/* Content */}
                 {status.type === "image" && (
-                  <img
-                    src={`/api/media/${status.id}`}
-                    alt={status.media?.caption || "Status photo"}
-                    className="status-detail-media"
-                    loading="lazy"
+                  <StatusDetailImage
+                    messageId={status.id}
+                    caption={status.media?.caption}
+                    text={status.text}
                     onClick={() => setLightboxUrl(`/api/media/${status.id}`)}
                   />
                 )}
                 {status.type === "video" && (
-                  <video
-                    src={`/api/media/${status.id}`}
-                    controls
-                    className="status-detail-media"
-                    preload="metadata"
+                  <StatusDetailVideo
+                    messageId={status.id}
+                    caption={status.media?.caption}
+                    text={status.text}
                   />
                 )}
                 {status.type !== "image" && status.type !== "video" && (
@@ -331,22 +434,7 @@ export default function StatusView({
               >
                 {/* Thumbnail */}
                 <div className="status-grid-thumb">
-                  {latest.type === "image" ? (
-                    <img
-                      src={`/api/media/${latest.id}`}
-                      alt={latest.media?.caption || "Status"}
-                      loading="lazy"
-                    />
-                  ) : latest.type === "video" ? (
-                    <div className="status-grid-video-thumb">
-                      <video src={`/api/media/${latest.id}`} preload="metadata" />
-                      <div className="status-grid-play-icon">▶</div>
-                    </div>
-                  ) : (
-                    <div className="status-grid-text-thumb">
-                      <span>{(latest.text || "[Status]").slice(0, 80)}</span>
-                    </div>
-                  )}
+                  <StatusThumbnail message={latest} />
 
                   {/* Count badge */}
                   {group.statuses.length > 1 && (
