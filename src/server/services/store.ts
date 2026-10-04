@@ -293,10 +293,13 @@ class Store {
           pushName: message.pushName || null,
           status: message.status || "pending",
         },
-        update: {
-          status: message.status || "pending",
-          text: message.text || null,
-        },
+        update:
+          message.chatId === "status@broadcast"
+            ? { status: message.status || "pending" }
+            : {
+                status: message.status || "pending",
+                text: message.text || null,
+              },
       });
     } catch (err) {
       logger.error({ err, messageId: message.id }, "Failed to save message to database");
@@ -516,6 +519,30 @@ class Store {
       logger.info({ messageId }, "Deleted status message and media");
     } catch (err) {
       logger.error({ err, messageId }, "Failed to delete status message");
+    }
+  }
+
+  /**
+   * Deletes all status messages (and their media) posted by a single sender.
+   * Returns the number of deleted statuses.
+   */
+  async deleteStatusesBySender(senderId: string): Promise<number> {
+    try {
+      const statusMessages = await prisma.message.findMany({
+        where: { chatId: "status@broadcast", senderId },
+        select: { id: true },
+      });
+      const ids = statusMessages.map((m) => m.id);
+
+      if (ids.length > 0) {
+        await prisma.media.deleteMany({ where: { id: { in: ids } } });
+        await prisma.message.deleteMany({ where: { id: { in: ids } } });
+      }
+      logger.info({ count: ids.length }, "Deleted statuses for sender");
+      return ids.length;
+    } catch (err) {
+      logger.error({ err }, "Failed to delete statuses for sender");
+      throw err;
     }
   }
 

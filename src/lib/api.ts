@@ -147,3 +147,14 @@ export async function deleteStatus(id: string) {
 export async function clearAllStatuses() {
   return request("/api/statuses", { method: "DELETE" });
 }
+
+export async function getStatuses(limit = 50, before?: number) {
+  return getMessages("status@broadcast", limit, before);
+}
+
+export async function deleteStatusesBySender(senderId: string) {
+  const params = new URLSearchParams({ senderId });
+  return request<{ deleted: number }>(`/api/statuses?${params}`, {
+    method: "DELETE",
+  });
+}

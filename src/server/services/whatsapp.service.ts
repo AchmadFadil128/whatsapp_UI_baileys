@@ -16,7 +16,12 @@ import path from "path";
 import fs from "fs";
 import { createLogger } from "@/server/lib/logger";
 import { store } from "@/server/services/store";
-import { transformMessage, normalizeJid, mapMessageStatus } from "@/server/lib/message-transformer";
+import {
+  transformMessage,
+  normalizeJid,
+  mapMessageStatus,
+  unwrapMessage,
+} from "@/server/lib/message-transformer";
 import type {
   WhatsAppConnectionState,
   Chat,
@@ -28,6 +33,7 @@ const logger = createLogger("whatsapp-service");
 
 const AUTH_DIR = path.join(process.cwd(), "data", "whatsapp", "auth");
 const MAX_RECONNECT_RETRIES = 5;
+const STATUS_BROADCAST_JID = "status@broadcast";
 const BROWSER_IDENTITY: [string, string, string] = [
   "Homelab WhatsApp",
   "Chrome",
@@ -665,6 +671,15 @@ class WhatsAppService extends EventEmitter {
         continue;
       }
 
+      // ─── Status revokes: statuses are permanent, ignore contact deletions ───
+      if (isStatusBroadcast && this.isRevokeMessage(raw)) {
+        logger.info(
+          { from: raw.pushName },
+          "Status revoke ignored (statuses are kept until manually deleted)"
+        );
+        continue;
+      }
+
       const message = transformMessage(raw);
       if (!message) continue;
 
@@ -674,7 +689,7 @@ class WhatsAppService extends EventEmitter {
           { from: raw.pushName, type: message.type },
           "Status broadcast received (excluded from chat list)"
         );
-        store.addMessage(message);
+        this.persistStatus(raw, message);
         if (type === "notify") {
           this.emit("message:received", { message });
         }
@@ -849,11 +864,19 @@ class WhatsAppService extends EventEmitter {
         if (raw.key?.id && raw.message) {
           this.rawMessages.set(raw.key.id, raw);
         }
+        const isStatusBroadcast = raw.key?.remoteJid === STATUS_BROADCAST_JID;
+        if (isStatusBroadcast && this.isRevokeMessage(raw)) continue;
+
         const message = transformMessage(raw);
-        if (message) {
-          store.addMessage(message);
-          store.updateChatLastMessage(message.chatId, message);
+        if (!message) continue;
+
+        if (isStatusBroadcast) {
+          this.persistStatus(raw, message);
+          continue;
         }
+
+        store.addMessage(message);
+        store.updateChatLastMessage(message.chatId, message);
       }
     }
 
@@ -879,6 +902,44 @@ class WhatsAppService extends EventEmitter {
         isTyping,
       });
     }
+  }
+
+  /**
+   * Detects "delete for everyone" revokes (protocol message or REVOKE stub).
+   * Used to keep statuses permanent regardless of contact deletion.
+   */
+  private isRevokeMessage(raw: WAMessage): boolean {
+    const REVOKE_PROTOCOL_TYPE = 0;
+    const REVOKE_STUB_TYPE = 1;
+    const content = unwrapMessage(raw.message);
+    if (content?.protocolMessage?.type === REVOKE_PROTOCOL_TYPE) return true;
+    return !raw.message && raw.messageStubType === REVOKE_STUB_TYPE;
+  }
+
+  /**
+   * Persists a status permanently: saves the message and eagerly downloads
+   * its media into the database, because WhatsApp media URLs expire after
+   * ~24h and raw messages only live in memory.
+   */
+  private persistStatus(raw: WAMessage, message: Message): void {
+    store.addMessage(message).catch((err) => {
+      logger.error({ err, messageId: message.id }, "Failed to persist status");
+    });
+
+    if (!message.media) return;
+
+    this.downloadMedia(message.id)
+      .then((result) => {
+        if (!result) {
+          logger.warn(
+            { messageId: message.id, hasRaw: !!raw.message },
+            "Status media could not be persisted"
+          );
+        }
+      })
+      .catch((err) => {
+        logger.error({ err, messageId: message.id }, "Failed to persist status media");
+      });
   }
 
   private clearAuthState(): void {

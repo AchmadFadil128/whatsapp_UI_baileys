@@ -2195,42 +2195,30 @@ video.status-detail-media {
   font-size: 0.85rem;
 }
 
-/* Lightbox overlay */
-.lightbox-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.9);
-  z-index: var(--z-toast);
+/* Status "load more" */
+.status-load-more {
   display: flex;
-  align-items: center;
   justify-content: center;
-  padding: 40px;
-  cursor: zoom-out;
+  padding: 20px 0 8px;
 }
-.lightbox-close {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  background: rgba(255,255,255,0.1);
-  color: white;
-  border: none;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  font-size: 24px;
-  cursor: pointer;
-  z-index: 10;
-  display: flex;
+.status-load-more-btn {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s;
 }
-.lightbox-close:hover {
-  background: rgba(255,255,255,0.2);
+.status-load-more-btn:hover:not(:disabled) {
+  border-color: var(--accent-teal);
+  transform: translateY(-1px);
 }
-.lightbox-image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+.status-load-more-btn:disabled {
+  opacity: 0.7;
+  cursor: progress;
 }
 
 /* Chat Item Hover Context Menu Trigger */

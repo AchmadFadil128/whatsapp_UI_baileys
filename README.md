@@ -195,8 +195,8 @@ whatsapp_UI_baileys/
 │   │   └── socket/             # Socket.IO handler
 │   └── types/                  # TypeScript interface & internal model definitions
 ├── server.ts                   # Custom entrypoint server HTTP + Socket.IO + Next.js
+├── Dockerfile                  # Multi-stage build Dockerfile untuk Web Application
 ├── docker-compose.yml          # Konfigurasi orkestrasi container Docker
-├── Dockerfile                  # Multi-stage build Dockerfile
 └── README.md                   # Dokumentasi proyek
 ```
 

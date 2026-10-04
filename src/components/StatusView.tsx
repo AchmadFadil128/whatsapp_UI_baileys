@@ -2,11 +2,16 @@
 
 import { useState, useMemo } from "react";
 import type { Message } from "@/types";
+import Lightbox from "@/components/Lightbox";
 
 interface StatusViewProps {
   statuses: Message[];
   isLoading: boolean;
+  isLoadingMore: boolean;
+  hasMore: boolean;
+  onLoadMore: () => void;
   onDeleteStatus: (id: string) => void;
+  onDeleteSenderStatuses: (senderId: string) => void;
   onClearAll: () => void;
 }
 
@@ -25,12 +30,47 @@ interface StatusGroup {
 export default function StatusView({
   statuses,
   isLoading,
+  isLoadingMore,
+  hasMore,
+  onLoadMore,
   onDeleteStatus,
+  onDeleteSenderStatuses,
   onClearAll,
 }: StatusViewProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSender, setSelectedSender] = useState<string | null>(null);
+
+  function handleDeleteSender(senderId: string, senderName: string) {
+    const ok = window.confirm(
+      `Hapus semua status dari ${senderName}? Tindakan ini tidak dapat dibatalkan.`
+    );
+    if (!ok) return;
+    onDeleteSenderStatuses(senderId);
+    setSelectedSender(null);
+  }
+
+  function renderLoadMore() {
+    if (!hasMore) return null;
+    return (
+      <div className="status-load-more">
+        <button
+          id="status-load-more-btn"
+          className="btn btn-ghost status-load-more-btn"
+          onClick={onLoadMore}
+          disabled={isLoadingMore}
+        >
+          {isLoadingMore ? (
+            <>
+              <span className="spinner spinner-sm" /> Memuat...
+            </>
+          ) : (
+            "Muat lebih banyak"
+          )}
+        </button>
+      </div>
+    );
+  }
 
   function formatTimestamp(ts: number): string {
     const date = new Date(ts * 1000);
@@ -149,12 +189,21 @@ export default function StatusView({
           <div className="chat-header-avatar" style={{ background: "linear-gradient(135deg, var(--accent-teal), var(--accent-primary))" }}>
             {getInitials(selectedGroup.senderName)}
           </div>
-          <div className="chat-header-info">
+          <div className="chat-header-info" style={{ flex: 1 }}>
             <div className="chat-header-name">{selectedGroup.senderName}</div>
             <div className="chat-header-status">
               {selectedGroup.statuses.length} status update{selectedGroup.statuses.length !== 1 ? "s" : ""}
             </div>
           </div>
+          <button
+            id="status-delete-sender-btn"
+            className="btn btn-ghost"
+            onClick={() => handleDeleteSender(selectedGroup.senderId, selectedGroup.senderName)}
+            title="Hapus semua status dari kontak ini"
+            style={{ padding: "6px 10px", fontSize: "0.85rem", color: "var(--accent-danger)" }}
+          >
+            🗑️ Hapus Semua
+          </button>
         </div>
 
         {/* Status detail grid */}
@@ -209,25 +258,16 @@ export default function StatusView({
               </div>
             ))}
           </div>
+          {renderLoadMore()}
         </div>
 
         {/* Lightbox */}
         {lightboxUrl && (
-          <div className="lightbox-overlay" onClick={() => setLightboxUrl(null)}>
-            <button
-              className="lightbox-close"
-              onClick={(e) => { e.stopPropagation(); setLightboxUrl(null); }}
-              aria-label="Close"
-            >
-              ✕
-            </button>
-            <img
-              src={lightboxUrl}
-              alt="Full size status"
-              className="lightbox-image"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
+          <Lightbox
+            src={lightboxUrl}
+            alt="Full size status"
+            onClose={() => setLightboxUrl(null)}
+          />
         )}
       </div>
     );
@@ -321,25 +361,16 @@ export default function StatusView({
             );
           })}
         </div>
+        {renderLoadMore()}
       </div>
 
       {/* Lightbox */}
       {lightboxUrl && (
-        <div className="lightbox-overlay" onClick={() => setLightboxUrl(null)}>
-          <button
-            className="lightbox-close"
-            onClick={(e) => { e.stopPropagation(); setLightboxUrl(null); }}
-            aria-label="Close"
-          >
-            ✕
-          </button>
-          <img
-            src={lightboxUrl}
-            alt="Full size status"
-            className="lightbox-image"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
+        <Lightbox
+          src={lightboxUrl}
+          alt="Full size status"
+          onClose={() => setLightboxUrl(null)}
+        />
       )}
     </div>
   );

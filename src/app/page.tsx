@@ -46,7 +46,16 @@ export default function Home() {
     useMessages(activeChatId, targetMessage?.timestamp);
 
   const { aliases, setAlias } = useChatAliases();
-  const { statuses, isLoading: isLoadingStatuses, deleteStatus, clearAllStatuses } = useStatuses();
+  const {
+    statuses,
+    isLoading: isLoadingStatuses,
+    isLoadingMore: isLoadingMoreStatuses,
+    hasMore: hasMoreStatuses,
+    loadMore: loadMoreStatuses,
+    deleteStatus,
+    deleteStatusesBySender,
+    clearAllStatuses,
+  } = useStatuses();
   const { channels } = useChannels();
 
   const [presence, setPresence] = useState<"available" | "unavailable">("available");
@@ -242,7 +251,11 @@ export default function Home() {
         <StatusView
           statuses={statuses}
           isLoading={isLoadingStatuses}
+          isLoadingMore={isLoadingMoreStatuses}
+          hasMore={hasMoreStatuses}
+          onLoadMore={loadMoreStatuses}
           onDeleteStatus={deleteStatus}
+          onDeleteSenderStatuses={deleteStatusesBySender}
           onClearAll={clearAllStatuses}
         />
       ) : (

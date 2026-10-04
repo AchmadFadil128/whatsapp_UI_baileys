@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Message } from "@/types";
+import Lightbox from "@/components/Lightbox";
 
 interface MessageBubbleProps {
   message: Message;
@@ -243,27 +244,11 @@ export default function MessageBubble({
 
       {/* Lightbox overlay for full-size image viewing */}
       {showLightbox && message.type === "image" && (
-        <div
-          className="lightbox-overlay"
-          onClick={() => setShowLightbox(false)}
-        >
-          <button
-            className="lightbox-close"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowLightbox(false);
-            }}
-            aria-label="Close"
-          >
-            ✕
-          </button>
-          <img
-            src={`/api/media/${message.id}`}
-            alt={message.media?.caption || "Full size photo"}
-            className="lightbox-image"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
+        <Lightbox
+          src={`/api/media/${message.id}`}
+          alt={message.media?.caption || "Full size photo"}
+          onClose={() => setShowLightbox(false)}
+        />
       )}
     </>
   );
