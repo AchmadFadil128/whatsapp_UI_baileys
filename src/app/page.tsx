@@ -58,18 +58,54 @@ export default function Home() {
   } = useStatuses();
   const { channels } = useChannels();
 
-  const [presence, setPresence] = useState<"available" | "unavailable">("available");
-  const [autoReadReceipts, setAutoReadReceipts] = useState(true);
+  // Default state: "unavailable" (offline) and false (disabled blue ticks)
+  const [presence, setPresence] = useState<"available" | "unavailable">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("whatsapp_presence");
+      if (saved === "available" || saved === "unavailable") return saved;
+    }
+    return "unavailable";
+  });
+
+  const [autoReadReceipts, setAutoReadReceipts] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("whatsapp_auto_read");
+      if (saved !== null) return saved === "true";
+    }
+    return false;
+  });
 
   const handleTogglePresence = useCallback(async () => {
     const nextPresence = presence === "available" ? "unavailable" : "available";
     try {
       await api.setPresence(nextPresence);
       setPresence(nextPresence);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("whatsapp_presence", nextPresence);
+      }
     } catch (err) {
       console.error("Failed to set presence", err);
     }
   }, [presence]);
+
+  const handleToggleAutoRead = useCallback(() => {
+    setAutoReadReceipts((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("whatsapp_auto_read", String(next));
+      }
+      return next;
+    });
+  }, []);
+
+  // Sync presence to backend whenever connected or presence changes
+  useEffect(() => {
+    if (connectionState === "connected") {
+      api.setPresence(presence).catch((err) => {
+        console.error("Failed to sync presence with backend", err);
+      });
+    }
+  }, [connectionState, presence]);
 
   const aliasedChats = useMemo(() => {
     return chats.map(c => ({
@@ -235,7 +271,7 @@ export default function Home() {
         presence={presence}
         onTogglePresence={handleTogglePresence}
         autoReadReceipts={autoReadReceipts}
-        onToggleAutoRead={() => setAutoReadReceipts((prev) => !prev)}
+        onToggleAutoRead={handleToggleAutoRead}
         onToggleArchive={(id) => {
           const chat = aliasedChats.find(c => c.id === id);
           if (chat) api.archiveChat(id, !chat.isArchived);

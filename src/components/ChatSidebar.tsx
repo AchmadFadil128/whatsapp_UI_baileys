@@ -71,9 +71,9 @@ export default function ChatSidebar({
   desktopPermission = "default",
   onRequestDesktopPermission,
   onTestNotification,
-  presence,
+  presence = "unavailable",
   onTogglePresence,
-  autoReadReceipts = true,
+  autoReadReceipts = false,
   onToggleAutoRead,
   onToggleArchive,
   onToggleMute,
@@ -251,7 +251,9 @@ export default function ChatSidebar({
 
   const connectionClass =
     connectionState === "connected"
-      ? "connected"
+      ? presence === "unavailable"
+        ? "disconnected"
+        : "connected"
       : connectionState === "connecting" || connectionState === "reconnecting"
       ? "connecting"
       : connectionState === "error"
@@ -284,7 +286,7 @@ export default function ChatSidebar({
               onTogglePresence();
             }}
           >
-            {presence === "available" ? "Appear offline" : "Appear online"}
+            {presence === "available" ? "Appear offline" : "Appear online (Offline)"}
           </button>
         )}
         {onToggleAutoRead && (
@@ -295,7 +297,7 @@ export default function ChatSidebar({
               onToggleAutoRead();
             }}
           >
-            {autoReadReceipts ? "Turn off read receipts" : "Turn on read receipts"}
+            {autoReadReceipts ? "Turn off read receipts" : "Turn on read receipts (Off)"}
           </button>
         )}
         {onTestNotification && (

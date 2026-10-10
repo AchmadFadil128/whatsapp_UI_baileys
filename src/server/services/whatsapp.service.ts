@@ -591,6 +591,11 @@ class WhatsAppService extends EventEmitter {
       this.clearReconnectTimer();
       this.updateState("connected");
 
+      // Default presence to unavailable (offline)
+      this.setPresence("unavailable").catch((err) => {
+        logger.warn(err, "Failed to set default presence to unavailable");
+      });
+
       // Sync chat names from stored contacts
       store.syncChatNamesFromContacts().catch((err) => {
         logger.error(err, "Failed to sync chat names from contacts");
