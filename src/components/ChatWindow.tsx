@@ -4,6 +4,7 @@ import { useEffect, useRef, useMemo, useState } from "react";
 import type { Message, Chat } from "@/types";
 import MessageBubble from "@/components/MessageBubble";
 import MessageInput from "@/components/MessageInput";
+import { BackIcon, PencilIcon, LockIcon, UserIcon, GroupIcon, ChatsIcon } from "@/components/Icons";
 
 interface ChatWindowProps {
   chat: Chat | null;
@@ -124,26 +125,24 @@ export default function ChatWindow({
     return result;
   }, [messages]);
 
-  function getInitials(name: string): string {
-    return name
-      .split(" ")
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-  }
-
   // Empty state when no chat is selected
   if (!chat) {
     return (
-      <div className="chat-window">
+      <div className="chat-window chat-window-empty">
         <div className="empty-state">
-          <div className="empty-state-icon">💬</div>
-          <h3>WhatsApp Client</h3>
+          <div className="empty-state-icon">
+            <ChatsIcon size={56} />
+          </div>
+          <h3>WhatsApp for Desktop</h3>
           <p>
-            Send and receive messages from your browser. Select a chat from the
-            sidebar to get started.
+            Send and receive messages without keeping your phone online.
+            <br />
+            Select a chat from the list to start messaging.
           </p>
+        </div>
+        <div className="empty-state-footer">
+          <LockIcon size={14} />
+          Your personal messages are end-to-end encrypted
         </div>
       </div>
     );
@@ -157,16 +156,21 @@ export default function ChatWindow({
       <div className="chat-header">
         {onBack && (
           <button
-            className="btn btn-ghost"
+            className="icon-btn chat-header-back"
             onClick={onBack}
-            style={{ padding: "6px 8px", fontSize: "1.1rem", marginRight: "4px" }}
             aria-label="Back to chats"
           >
-            ←
+            <BackIcon size={22} />
           </button>
         )}
         <div className="chat-header-avatar">
-          {getInitials(chat.name || "?")}
+          {chat.profilePicUrl ? (
+            <img src={chat.profilePicUrl} alt={chat.name} />
+          ) : isGroup ? (
+            <GroupIcon size={24} />
+          ) : (
+            <UserIcon size={26} />
+          )}
         </div>
         <div className="chat-header-info" style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
           {isEditingName ? (
@@ -184,8 +188,7 @@ export default function ChatWindow({
                   }
                 }}
                 autoFocus
-                className="input"
-                style={{ padding: "4px 8px", fontSize: "1rem" }}
+                className="chat-header-rename-input"
               />
               <button
                 className="btn btn-primary"
@@ -211,26 +214,36 @@ export default function ChatWindow({
                 {chat.name}
               </div>
               <button
-                className="btn btn-ghost"
-                style={{ padding: "2px", display: "flex", opacity: 0.6 }}
+                className="icon-btn chat-header-rename-btn"
                 title="Rename chat (local only)"
+                aria-label="Rename chat"
                 onClick={() => {
                   setEditNameValue(chat.name || "");
                   setIsEditingName(true);
                 }}
               >
-                ✏️
+                <PencilIcon size={16} />
               </button>
             </div>
           )}
           <div className="chat-header-status">
-            {isGroup ? "Group" : "Chat"}
+            {isGroup ? "Group" : "Personal chat"}
           </div>
         </div>
       </div>
 
       {/* Messages */}
       <div className="messages-container" ref={messagesContainerRef}>
+        {!hasMore && !isLoading && (
+          <div className="encryption-notice">
+            <LockIcon size={12} />
+            <span>
+              Messages are end-to-end encrypted. No one outside of this chat,
+              not even WhatsApp, can read or listen to them.
+            </span>
+          </div>
+        )}
+
         {isLoading && messages.length === 0 && (
           <div
             style={{

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import type { WhatsAppConnectionState } from "@/types";
+import { ChatsIcon } from "@/components/Icons";
 
 interface QRScreenProps {
   connectionState: WhatsAppConnectionState;
@@ -119,9 +120,11 @@ export default function QRScreen({
       <div className="qr-card">
         {/* Logo */}
         <div className="qr-logo">
-          <div className="qr-logo-icon">💬</div>
+          <div className="qr-logo-icon">
+            <ChatsIcon size={26} />
+          </div>
           <div className="qr-logo-text">
-            <span>WA</span> Client
+            <span>WhatsApp</span> Web
           </div>
         </div>
 

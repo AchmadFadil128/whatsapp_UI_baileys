@@ -3,6 +3,8 @@
 import { useState, useRef, useCallback, type KeyboardEvent } from "react";
 
 import type { Message } from "@/types";
+import { CloseIcon, DocumentIcon, EmojiIcon, PlusIcon, SendIcon, MicIcon } from "@/components/Icons";
+import EmojiPicker from "@/components/EmojiPicker";
 
 interface MessageInputProps {
   onSend: (text: string, file?: File) => void;
@@ -19,6 +21,7 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
   const [text, setText] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -31,6 +34,7 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
     
     setText("");
     setAttachment(null);
+    setShowEmojiPicker(false);
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
@@ -59,6 +63,25 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
     textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
   }, []);
 
+  const handleSelectEmoji = useCallback((emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setText((prev) => prev + emoji);
+      return;
+    }
+    const start = textarea.selectionStart ?? text.length;
+    const end = textarea.selectionEnd ?? text.length;
+    const newText = text.slice(0, start) + emoji + text.slice(end);
+    setText(newText);
+
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const nextPos = start + emoji.length;
+      textarea.setSelectionRange(nextPos, nextPos);
+      handleInput();
+    });
+  }, [text, handleInput]);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -84,8 +107,10 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
       setPreviewUrl(null);
     }
   };
+  const canSend = !disabled && (text.trim().length > 0 || !!attachment);
+
   return (
-    <div className="message-input-container" style={{ flexDirection: "column", padding: "12px 20px" }}>
+    <div className="message-input-container">
       {replyingTo && (
         <div className="input-reply-preview">
           <div className="input-reply-preview-content">
@@ -100,95 +125,80 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
             className="input-reply-preview-close"
             onClick={onCancelReply}
             title="Cancel reply"
+            aria-label="Cancel reply"
           >
-            ✕
+            <CloseIcon size={20} />
           </button>
         </div>
       )}
 
-      {/* Attachment Preview Overlay */}
+      {/* Attachment Preview */}
       {attachment && (
-        <div 
-          style={{
-            position: "relative",
-            display: "inline-block",
-            marginBottom: "12px",
-            background: "var(--bg-app)",
-            padding: "8px",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--border-default)",
-            maxWidth: "300px"
-          }}
-        >
+        <div className="input-attachment-preview">
           {previewUrl ? (
             attachment.type.startsWith("video/") ? (
-              <video 
-                src={previewUrl} 
-                style={{ maxHeight: "150px", maxWidth: "200px", borderRadius: "var(--radius-sm)", objectFit: "contain" }} 
-              />
+              <video src={previewUrl} className="input-attachment-media" />
             ) : (
-              <img 
-                src={previewUrl} 
-                alt="Attachment preview" 
-                style={{ maxHeight: "150px", maxWidth: "200px", borderRadius: "var(--radius-sm)", objectFit: "contain" }} 
-              />
+              <img src={previewUrl} alt="Attachment preview" className="input-attachment-media" />
             )
           ) : (
-            <div style={{ padding: "16px", display: "flex", alignItems: "center", gap: "8px", color: "var(--text-primary)" }}>
-              <span style={{ fontSize: "24px" }}>📄</span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {attachment.name}
-              </span>
+            <div className="input-attachment-file">
+              <DocumentIcon size={28} />
+              <span>{attachment.name}</span>
             </div>
           )}
-          <button 
+          <button
+            className="input-attachment-remove"
             onClick={removeAttachment}
-            style={{
-              position: "absolute",
-              top: "-8px",
-              right: "-8px",
-              background: "var(--accent-danger)",
-              color: "white",
-              border: "none",
-              borderRadius: "50%",
-              width: "24px",
-              height: "24px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "12px",
-              boxShadow: "var(--shadow-md)"
-            }}
+            aria-label="Remove attachment"
           >
-            ✕
+            <CloseIcon size={14} />
           </button>
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "flex-end", gap: "12px", width: "100%" }}>
+      <div className="message-input-row">
+        {showEmojiPicker && (
+          <EmojiPicker
+            onSelectEmoji={handleSelectEmoji}
+            onClose={() => setShowEmojiPicker(false)}
+          />
+        )}
+        <button
+          id="emoji-picker-btn"
+          className={`icon-btn compose-btn ${showEmojiPicker ? "active" : ""}`}
+          type="button"
+          title="Emoji"
+          aria-label="Emoji"
+          onClick={() => setShowEmojiPicker((prev) => !prev)}
+          disabled={disabled}
+        >
+          <EmojiIcon size={24} />
+        </button>
         {/* Attach Button */}
         <button
-          className="btn btn-ghost"
+          id="attach-btn"
+          className="icon-btn compose-btn"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
-          title="Attach file"
-          style={{ padding: "10px", fontSize: "1.2rem", color: "var(--text-secondary)" }}
+          title="Attach"
+          aria-label="Attach file"
         >
-          📎
+          <PlusIcon size={24} />
         </button>
-        <input 
-          type="file" 
-          ref={fileInputRef} 
-          style={{ display: "none" }} 
+        <input
+          type="file"
+          ref={fileInputRef}
+          style={{ display: "none" }}
           onChange={handleFileChange}
         />
 
-        <div className="message-input-wrapper" style={{ flex: 1 }}>
+        <div className="message-input-wrapper">
           <textarea
+            id="message-input"
             ref={textareaRef}
             className="message-input"
-            placeholder={attachment ? "Add a caption..." : "Type a message"}
+            placeholder={attachment ? "Add a caption" : "Type a message"}
             value={text}
             onChange={(e) => {
               setText(e.target.value);
@@ -197,18 +207,18 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
             onKeyDown={handleKeyDown}
             rows={1}
             disabled={disabled}
-            style={{ padding: "12px 16px" }}
           />
         </div>
-        
+
         <button
-          className="send-button"
+          id="send-btn"
+          className="icon-btn compose-btn send-button"
           onClick={handleSend}
-          disabled={disabled || (!text.trim() && !attachment)}
-          aria-label="Send message"
-          title="Send message"
+          disabled={!canSend}
+          aria-label={canSend ? "Send message" : "Voice message (not supported)"}
+          title={canSend ? "Send" : "Type a message to send"}
         >
-          ➤
+          {canSend ? <SendIcon size={24} /> : <MicIcon size={24} />}
         </button>
       </div>
     </div>

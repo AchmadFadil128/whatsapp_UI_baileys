@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import type { Message } from "@/types";
 import Lightbox from "@/components/Lightbox";
+import { BackIcon, TrashIcon, UserIcon, StatusIcon, SearchIcon } from "@/components/Icons";
 
 interface StatusViewProps {
   statuses: Message[];
@@ -284,15 +285,14 @@ export default function StatusView({
         {/* Header */}
         <div className="chat-header">
           <button
-            className="btn btn-ghost"
+            className="icon-btn"
             onClick={() => setSelectedSender(null)}
-            style={{ padding: "6px 8px", fontSize: "1.1rem", marginRight: "4px" }}
             aria-label="Back to status overview"
           >
-            ←
+            <BackIcon size={22} />
           </button>
-          <div className="chat-header-avatar" style={{ background: "linear-gradient(135deg, var(--accent-teal), var(--accent-primary))" }}>
-            {getInitials(selectedGroup.senderName)}
+          <div className="chat-header-avatar">
+            <UserIcon size={24} />
           </div>
           <div className="chat-header-info" style={{ flex: 1 }}>
             <div className="chat-header-name">{selectedGroup.senderName}</div>
@@ -305,9 +305,10 @@ export default function StatusView({
             className="btn btn-ghost"
             onClick={() => handleDeleteSender(selectedGroup.senderId, selectedGroup.senderName)}
             title="Hapus semua status dari kontak ini"
-            style={{ padding: "6px 10px", fontSize: "0.85rem", color: "var(--accent-danger)" }}
+            style={{ padding: "6px 12px", fontSize: "0.85rem", color: "var(--accent-danger)", gap: "6px" }}
           >
-            🗑️ Hapus Semua
+            <TrashIcon size={16} />
+            Hapus Semua
           </button>
         </div>
 
@@ -381,8 +382,8 @@ export default function StatusView({
     <div className="chat-window">
       {/* Header */}
       <div className="chat-header">
-        <div className="chat-header-avatar" style={{ background: "var(--accent-teal)" }}>
-          📡
+        <div className="chat-header-avatar">
+          <StatusIcon size={22} />
         </div>
         <div className="chat-header-info" style={{ flex: 1 }}>
           <div className="chat-header-name">Status Updates</div>
@@ -394,22 +395,28 @@ export default function StatusView({
           className="btn btn-ghost"
           onClick={onClearAll}
           title="Clear all statuses"
-          style={{ padding: "6px 10px", fontSize: "0.85rem", color: "var(--accent-danger)" }}
+          style={{ padding: "6px 12px", fontSize: "0.85rem", color: "var(--accent-danger)", gap: "6px" }}
         >
-          🗑️ Clear All
+          <TrashIcon size={16} />
+          Clear All
         </button>
       </div>
 
       {/* Search Bar */}
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-default)", background: "var(--bg-app)" }}>
-        <input
-          type="text"
-          placeholder="Search contacts..."
-          className="search-input"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "none", background: "var(--bg-input)", color: "var(--text-primary)" }}
-        />
+      <div style={{ padding: "8px 16px", borderBottom: "1px solid var(--border-default)", background: "var(--bg-sidebar)" }}>
+        <div className="sidebar-search-inner">
+          <span className="sidebar-search-icon">
+            <SearchIcon size={18} />
+          </span>
+          <input
+            type="text"
+            placeholder="Search contacts..."
+            className="search-input"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ width: "100%", height: "36px", padding: "0 14px 0 46px", borderRadius: "8px", border: "none", background: "var(--bg-search)", color: "var(--text-primary)", fontSize: "0.9375rem" }}
+          />
+        </div>
       </div>
 
       {/* Contact Grid */}

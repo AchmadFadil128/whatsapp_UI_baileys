@@ -3,6 +3,15 @@
 import { useState } from "react";
 import type { Message } from "@/types";
 import Lightbox from "@/components/Lightbox";
+import {
+  CheckIcon,
+  DoubleCheckIcon,
+  ClockIcon,
+  ReplyIcon,
+  DocumentIcon,
+  DownloadIcon,
+  MicIcon,
+} from "@/components/Icons";
 
 interface MessageBubbleProps {
   message: Message;
@@ -52,22 +61,27 @@ export default function MessageBubble({
 
     switch (message.status) {
       case "pending":
-        return <span className="check">🕐</span>;
+        return <span className="check"><ClockIcon size={15} /></span>;
       case "sent":
-        return <span className="check">✓</span>;
+        return <span className="check"><CheckIcon width={16} height={11} /></span>;
       case "delivered":
-        return <span className="check">✓✓</span>;
+        return <span className="check"><DoubleCheckIcon width={16} height={11} /></span>;
       case "read":
-        return <span className="check read">✓✓</span>;
+        return <span className="check read"><DoubleCheckIcon width={16} height={11} /></span>;
       default:
-        return <span className="check">✓</span>;
+        return <span className="check"><CheckIcon width={16} height={11} /></span>;
     }
   }
 
   function renderContent() {
     switch (message.type) {
       case "text":
-        return <div className="message-text">{message.text}</div>;
+        return (
+          <div className="message-text">
+            {message.text}
+            <span className="message-spacer" aria-hidden="true" />
+          </div>
+        );
       case "image":
         return renderImage();
       case "video":
@@ -164,9 +178,9 @@ export default function MessageBubble({
   function renderAudio() {
     const mediaUrl = `/api/media/${message.id}`;
     return (
-      <div className="message-media audio-message" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px' }}>
-        <div style={{ fontSize: '1.5rem', color: 'var(--accent-primary)' }}>
-          🎤
+      <div className="message-media audio-message">
+        <div className="audio-message-icon">
+          <MicIcon size={22} />
         </div>
         <audio
           src={mediaUrl}
@@ -185,29 +199,19 @@ export default function MessageBubble({
     const caption = message.media?.caption || message.text;
 
     return (
-      <div className="message-media document-message" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div className="message-media document-message">
         <a
           href={mediaUrl}
           download={fileName}
           target="_blank"
           rel="noopener noreferrer"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            padding: "10px 14px",
-            background: "rgba(255, 255, 255, 0.1)",
-            borderRadius: "var(--radius-md)",
-            textDecoration: "none",
-            color: "var(--text-primary)",
-            border: "1px solid var(--border-default)"
-          }}
+          className="document-card"
         >
-          <span style={{ fontSize: "24px" }}>📄</span>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, fontWeight: 500 }}>
+          <span className="document-card-icon"><DocumentIcon size={28} /></span>
+          <span className="document-card-name">
             {fileName}
           </span>
-          <span style={{ opacity: 0.8 }} title="Download">⬇️</span>
+          <span className="document-card-download" title="Download"><DownloadIcon size={20} /></span>
         </a>
         {caption && <div className="message-text media-caption">{caption}</div>}
       </div>
@@ -219,12 +223,12 @@ export default function MessageBubble({
       <div id={`msg-${message.id}`} className={`message-row ${direction} ${isHighlighted ? "highlighted" : ""}`}>
         {onReply && (
           <div className="message-action-menu">
-            <button className="reply-action-btn" onClick={onReply} title="Reply">
-              ↩️
+            <button className="reply-action-btn" onClick={onReply} title="Reply" aria-label="Reply">
+              <ReplyIcon size={18} />
             </button>
           </div>
         )}
-        <div className="message-bubble">
+        <div className={`message-bubble ${message.type === "text" ? "inline-footer" : ""}`}>
           {showSender && !message.fromMe && message.pushName && (
             <div className="message-sender">{message.pushName}</div>
           )}
