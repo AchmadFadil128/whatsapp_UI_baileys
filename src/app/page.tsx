@@ -16,6 +16,7 @@ import ChatSidebar from "@/components/ChatSidebar";
 import ChatWindow from "@/components/ChatWindow";
 import StatusView from "@/components/StatusView";
 import NotificationToastContainer from "@/components/NotificationToast";
+import { EyeIcon, EyeOffIcon } from "@/components/Icons";
 
 /**
  * Main page — orchestrates the entire WhatsApp client UI.
@@ -42,6 +43,7 @@ export default function Home() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"chats" | "status" | "channels">("chats");
   const [targetMessage, setTargetMessage] = useState<{ id: string; timestamp?: number } | null>(null);
+  const [focusTrigger, setFocusTrigger] = useState(0);
   const { messages, isLoading: isLoadingMessages, hasMore, loadMore, appendMessage } =
     useMessages(activeChatId, targetMessage?.timestamp);
 
@@ -74,6 +76,40 @@ export default function Home() {
     }
     return false;
   });
+
+  const [privacyBlur, setPrivacyBlur] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("whatsapp_privacy_blur");
+      if (saved !== null) return saved === "true";
+    }
+    return false;
+  });
+
+  const [privacyBlurToast, setPrivacyBlurToast] = useState<string | null>(null);
+
+  const handleTogglePrivacyBlur = useCallback(() => {
+    setPrivacyBlur((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("whatsapp_privacy_blur", String(next));
+      }
+      setPrivacyBlurToast(next ? "Blur Privasi Aktif (Alt + /)" : "Blur Privasi Nonaktif (Alt + /)");
+      setTimeout(() => setPrivacyBlurToast(null), 2000);
+      return next;
+    });
+  }, []);
+
+  // Shortcut Alt + / for toggling privacy blur
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.altKey && (e.key === "/" || e.key === "?" || e.code === "Slash")) {
+        e.preventDefault();
+        handleTogglePrivacyBlur();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleTogglePrivacyBlur]);
 
   const handleTogglePresence = useCallback(async () => {
     const nextPresence = presence === "available" ? "unavailable" : "available";
@@ -125,6 +161,7 @@ export default function Home() {
     (chatId: string, messageId?: string, timestamp?: number) => {
       setActiveChatId(chatId);
       setActiveTab((prev) => (prev === "status" ? "chats" : prev));
+      setFocusTrigger((prev) => prev + 1);
       if (messageId) {
         setTargetMessage({ id: messageId, timestamp });
       } else {
@@ -138,6 +175,17 @@ export default function Home() {
     },
     [markRead, autoReadReceipts]
   );
+
+  const handleJumpToMessage = useCallback(async (messageId: string) => {
+    try {
+      const res = await api.getMessageById(messageId);
+      if (res.success && res.data) {
+        setTargetMessage({ id: res.data.id, timestamp: res.data.timestamp });
+      }
+    } catch (err) {
+      console.error("Failed to jump to message:", err);
+    }
+  }, []);
 
   // Auto-read incoming messages for the active chat
   useEffect(() => {
@@ -234,7 +282,15 @@ export default function Home() {
   }
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${privacyBlur ? "privacy-blur-active" : ""}`}>
+      {/* Privacy Blur Toast Notification */}
+      {privacyBlurToast && (
+        <div className="privacy-blur-toast" role="status">
+          {privacyBlur ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+          <span>{privacyBlurToast}</span>
+        </div>
+      )}
+
       {/* In-app Toast Notifications */}
       <NotificationToastContainer
         toasts={toasts}
@@ -272,6 +328,8 @@ export default function Home() {
         onTogglePresence={handleTogglePresence}
         autoReadReceipts={autoReadReceipts}
         onToggleAutoRead={handleToggleAutoRead}
+        privacyBlur={privacyBlur}
+        onTogglePrivacyBlur={handleTogglePrivacyBlur}
         onToggleArchive={(id) => {
           const chat = aliasedChats.find(c => c.id === id);
           if (chat) api.archiveChat(id, !chat.isArchived);
@@ -301,8 +359,10 @@ export default function Home() {
           isLoading={isLoadingMessages}
           hasMore={hasMore}
           highlightedMessageId={targetMessage?.id}
+          focusTrigger={focusTrigger}
           onSendMessage={handleSendMessage}
           onLoadMore={loadMore}
+          onJumpToMessage={handleJumpToMessage}
           onBack={activeChatId ? handleBack : undefined}
           onRename={(newName) => activeChatId && setAlias(activeChatId, newName)}
         />

@@ -1151,12 +1151,17 @@ button {
 }
 
 @keyframes message-highlight-pulse {
-  0%,
-  40% {
-    filter: brightness(1.45);
+  0% {
+    filter: brightness(1.55);
+    box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.65), var(--shadow-md);
+  }
+  35% {
+    filter: brightness(1.35);
+    box-shadow: 0 0 0 2px rgba(0, 168, 132, 0.4), var(--shadow-md);
   }
   100% {
     filter: brightness(1);
+    box-shadow: var(--shadow-sm);
   }
 }
 
@@ -2887,3 +2892,111 @@ video.status-detail-media {
     height: 200px;
   }
 }
+
+/* ─── Scroll to Bottom Button ───────────────────────────────── */
+.scroll-bottom-btn {
+  position: absolute;
+  right: 20px;
+  bottom: 74px;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-full);
+  background: var(--bg-header);
+  color: var(--icon-color);
+  border: 1px solid var(--border-default);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: transform var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  animation: scroll-btn-fade-in 0.18s ease-out;
+}
+
+.scroll-bottom-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  transform: scale(1.08);
+}
+
+@keyframes scroll-btn-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ─── Privacy Blur Feature (Alt + /) ────────────────────────── */
+.privacy-blur-active .chat-name,
+.privacy-blur-active .chat-last-message,
+.privacy-blur-active .message-text,
+.privacy-blur-active .message-quoted,
+.privacy-blur-active .document-card-name,
+.privacy-blur-active .chat-header-name,
+.privacy-blur-active .input-reply-preview-content,
+.privacy-blur-active .message-search-snippet,
+.privacy-blur-active .status-item-text,
+.privacy-blur-active .message-media img,
+.privacy-blur-active .message-media video {
+  filter: blur(6px);
+  transition: filter 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+/* Hover reveals content cleanly */
+.privacy-blur-active .chat-item:hover .chat-name,
+.privacy-blur-active .chat-item:hover .chat-last-message,
+.privacy-blur-active .message-bubble:hover .message-text,
+.privacy-blur-active .message-bubble:hover .message-quoted,
+.privacy-blur-active .message-bubble:hover .document-card-name,
+.privacy-blur-active .message-bubble:hover .message-media img,
+.privacy-blur-active .message-bubble:hover .message-media video,
+.privacy-blur-active .chat-header-info:hover .chat-header-name,
+.privacy-blur-active .input-reply-preview:hover .input-reply-preview-content,
+.privacy-blur-active .message-search-item:hover .message-search-snippet {
+  filter: blur(0px);
+  user-select: auto;
+}
+
+/* Privacy Blur Toast Feedback */
+.privacy-blur-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-dropdown);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  padding: 8px 18px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  z-index: 9999;
+  animation: blur-toast-in 0.2s ease-out;
+  pointer-events: none;
+}
+
+.privacy-blur-toast svg {
+  color: var(--accent-primary);
+}
+
+@keyframes blur-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+

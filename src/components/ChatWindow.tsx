@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback } from "react";
 import type { Message, Chat } from "@/types";
 import MessageBubble from "@/components/MessageBubble";
 import MessageInput from "@/components/MessageInput";
-import { BackIcon, PencilIcon, LockIcon, UserIcon, GroupIcon, ChatsIcon } from "@/components/Icons";
+import {
+  BackIcon,
+  PencilIcon,
+  LockIcon,
+  UserIcon,
+  GroupIcon,
+  ChatsIcon,
+  ChevronDownIcon,
+} from "@/components/Icons";
 
 interface ChatWindowProps {
   chat: Chat | null;
@@ -12,8 +20,10 @@ interface ChatWindowProps {
   isLoading: boolean;
   hasMore: boolean;
   highlightedMessageId?: string | null;
+  focusTrigger?: number;
   onSendMessage: (text: string, file?: File, replyToMessageId?: string) => void;
   onLoadMore: () => void;
+  onJumpToMessage?: (messageId: string) => void;
   onBack?: () => void;
   onRename?: (newName: string) => void;
 }
@@ -28,36 +38,113 @@ export default function ChatWindow({
   isLoading,
   hasMore,
   highlightedMessageId,
+  focusTrigger,
   onSendMessage,
   onLoadMore,
+  onJumpToMessage,
   onBack,
   onRename,
 }: ChatWindowProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
-  
+  const [localHighlightedId, setLocalHighlightedId] = useState<string | null>(null);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const isFirstLoad = useRef(true);
+  const isFirstLoadRef = useRef(true);
+  const isAtBottomRef = useRef(true);
+  const prevMessagesRef = useRef<Message[]>([]);
+  const prependScrollInfoRef = useRef<{ prevScrollHeight: number; prevScrollTop: number } | null>(null);
 
-  // Auto-scroll to bottom on new messages (unless jumping to a specific highlighted message)
+  // Reset scroll and state when chat changes
   useEffect(() => {
-    if (messages.length > 0) {
-      if (highlightedMessageId) return;
+    isFirstLoadRef.current = true;
+    isAtBottomRef.current = true;
+    setShowScrollBottomBtn(false);
+    prevMessagesRef.current = [];
+    setReplyingTo(null);
+    prependScrollInfoRef.current = null;
+    setLocalHighlightedId(null);
+  }, [chat?.id]);
 
-      // On first load or when a new message arrives, scroll to bottom
-      if (isFirstLoad.current) {
-        messagesEndRef.current?.scrollIntoView();
-        isFirstLoad.current = false;
+  // Handle messages scroll position adjustments
+  useLayoutEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || messages.length === 0) return;
+
+    const prev = prevMessagesRef.current;
+    const currentFirstId = messages[0]?.id;
+    const currentLastId = messages[messages.length - 1]?.id;
+
+    // Case 1: First load of a chat
+    if (isFirstLoadRef.current) {
+      if (highlightedMessageId) {
+        const el = document.getElementById(`msg-${highlightedMessageId}`);
+        if (el) {
+          el.scrollIntoView({ block: "center" });
+        }
       } else {
-        // Smooth scroll for new messages
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        container.scrollTop = container.scrollHeight;
       }
+      isFirstLoadRef.current = false;
+      isAtBottomRef.current = true;
+      setShowScrollBottomBtn(false);
+      prevMessagesRef.current = messages;
+      return;
     }
-  }, [messages.length, highlightedMessageId]);
 
-  // Scroll to highlighted message when loaded
+    // Case 2: Older messages prepended (infinite scroll / load more)
+    const isPrepend =
+      prev.length > 0 &&
+      messages.length > prev.length &&
+      currentFirstId !== prev[0]?.id;
+
+    if (isPrepend) {
+      if (prependScrollInfoRef.current) {
+        const { prevScrollHeight, prevScrollTop } = prependScrollInfoRef.current;
+        const heightDiff = container.scrollHeight - prevScrollHeight;
+        container.scrollTop = prevScrollTop + heightDiff;
+        prependScrollInfoRef.current = null;
+      } else {
+        const oldFirstEl = document.getElementById(`msg-${prev[0]?.id}`);
+        if (oldFirstEl) {
+          oldFirstEl.scrollIntoView({ block: "start" });
+        }
+      }
+      prevMessagesRef.current = messages;
+      return;
+    }
+
+    // Case 3: Message appended (new message received or sent)
+    const isAppend =
+      prev.length > 0 &&
+      messages.length > prev.length &&
+      currentLastId !== prev[prev.length - 1]?.id;
+
+    if (isAppend) {
+      const lastMsg = messages[messages.length - 1];
+      const isSentByMe = lastMsg?.fromMe;
+
+      // If sent by me, or if user was already at the bottom: scroll to bottom
+      // If user is scrolled up: DO NOT scroll down automatically!
+      if (isSentByMe || isAtBottomRef.current) {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        isAtBottomRef.current = true;
+        setShowScrollBottomBtn(false);
+      } else {
+        setShowScrollBottomBtn(true);
+      }
+      prevMessagesRef.current = messages;
+      return;
+    }
+
+    // Case 4: Other message updates (status change, etc.)
+    prevMessagesRef.current = messages;
+  }, [messages, highlightedMessageId]);
+
+  // Scroll to highlighted message when jumping from search or reply
   useEffect(() => {
     if (highlightedMessageId && messages.length > 0) {
       const timer = setTimeout(() => {
@@ -70,26 +157,53 @@ export default function ChatWindow({
     }
   }, [highlightedMessageId, messages]);
 
-  // Reset first load flag and reply state when chat changes
-  useEffect(() => {
-    isFirstLoad.current = true;
-    setReplyingTo(null);
-  }, [chat?.id]);
-
-  // Handle scroll to top for infinite scroll
+  // Listen to scroll events on messages container
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
     function handleScroll() {
-      if (container!.scrollTop < 100 && hasMore && !isLoading) {
+      if (!container) return;
+      const threshold = 120;
+      const atBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
+      isAtBottomRef.current = atBottom;
+      setShowScrollBottomBtn(!atBottom);
+
+      // Check if user scrolled near the top (< 100px) and more messages can be loaded
+      if (container.scrollTop < 100 && hasMore && !isLoading) {
+        prependScrollInfoRef.current = {
+          prevScrollHeight: container.scrollHeight,
+          prevScrollTop: container.scrollTop,
+        };
         onLoadMore();
       }
     }
 
-    container.addEventListener("scroll", handleScroll);
+    container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
   }, [hasMore, isLoading, onLoadMore]);
+
+  // Jump to quoted message handler
+  const handleQuotedClick = useCallback(
+    (targetId: string) => {
+      const el = document.getElementById(`msg-${targetId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setLocalHighlightedId(targetId);
+        setTimeout(() => {
+          setLocalHighlightedId((curr) => (curr === targetId ? null : curr));
+        }, 2200);
+        return;
+      }
+
+      // Not loaded in view: delegate to parent to load and center
+      if (onJumpToMessage) {
+        onJumpToMessage(targetId);
+      }
+    },
+    [onJumpToMessage]
+  );
 
   // Group messages by date for date separators
   const messagesWithDates = useMemo(() => {
@@ -149,6 +263,7 @@ export default function ChatWindow({
   }
 
   const isGroup = chat.id.endsWith("@g.us");
+  const activeHighlightId = localHighlightedId || highlightedMessageId;
 
   return (
     <div className="chat-window">
@@ -269,7 +384,15 @@ export default function ChatWindow({
             ) : (
               <button
                 className="btn btn-ghost"
-                onClick={onLoadMore}
+                onClick={() => {
+                  if (messagesContainerRef.current) {
+                    prependScrollInfoRef.current = {
+                      prevScrollHeight: messagesContainerRef.current.scrollHeight,
+                      prevScrollTop: messagesContainerRef.current.scrollTop,
+                    };
+                  }
+                  onLoadMore();
+                }}
                 style={{ fontSize: "0.8rem" }}
               >
                 Load older messages
@@ -293,7 +416,8 @@ export default function ChatWindow({
               message={item.message}
               showSender={isGroup}
               onReply={() => setReplyingTo(item.message)}
-              isHighlighted={item.message.id === highlightedMessageId}
+              onQuotedClick={handleQuotedClick}
+              isHighlighted={item.message.id === activeHighlightId}
             />
           );
         })}
@@ -301,8 +425,26 @@ export default function ChatWindow({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Floating Scroll to Bottom button */}
+      {showScrollBottomBtn && (
+        <button
+          className="scroll-bottom-btn"
+          onClick={() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            isAtBottomRef.current = true;
+            setShowScrollBottomBtn(false);
+          }}
+          title="Scroll to bottom"
+          aria-label="Scroll to bottom"
+        >
+          <ChevronDownIcon size={20} />
+        </button>
+      )}
+
       {/* Message Input */}
       <MessageInput 
+        chatId={chat.id}
+        focusTrigger={focusTrigger}
         onSend={(text, file) => {
           onSendMessage(text, file, replyingTo?.id);
           setReplyingTo(null);

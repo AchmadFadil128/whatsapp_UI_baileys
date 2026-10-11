@@ -17,6 +17,7 @@ interface MessageBubbleProps {
   message: Message;
   showSender?: boolean;
   onReply?: () => void;
+  onQuotedClick?: (quotedMessageId: string) => void;
   isHighlighted?: boolean;
 }
 
@@ -29,6 +30,7 @@ export default function MessageBubble({
   message,
   showSender = false,
   onReply,
+  onQuotedClick,
   isHighlighted = false,
 }: MessageBubbleProps) {
   // Do not display unsupported messages or unsupported events
@@ -233,7 +235,17 @@ export default function MessageBubble({
             <div className="message-sender">{message.pushName}</div>
           )}
           {message.quotedMessage && (
-            <div className="message-quoted">
+            <div
+              className="message-quoted"
+              onClick={(e) => {
+                e.stopPropagation();
+                const targetId = message.quotedMessage?.id || message.quotedMessageId;
+                if (targetId && onQuotedClick) {
+                  onQuotedClick(targetId);
+                }
+              }}
+              title="Jump to quoted message"
+            >
               <div className="message-quoted-sender">{message.quotedMessage.sender.split("@")[0]}</div>
               <div className="message-quoted-text">{message.quotedMessage.text || "Message"}</div>
             </div>

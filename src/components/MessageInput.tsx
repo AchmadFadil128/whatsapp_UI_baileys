@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useRef, useCallback, type KeyboardEvent } from "react";
+import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
 
 import type { Message } from "@/types";
 import { CloseIcon, DocumentIcon, EmojiIcon, PlusIcon, SendIcon, MicIcon } from "@/components/Icons";
 import EmojiPicker from "@/components/EmojiPicker";
 
 interface MessageInputProps {
+  chatId?: string;
+  focusTrigger?: number;
   onSend: (text: string, file?: File) => void;
   disabled?: boolean;
   replyingTo?: Message | null;
@@ -17,7 +19,14 @@ interface MessageInputProps {
  * Message composition bar with auto-resize textarea and image attachment capability.
  * Enter to send, Shift+Enter for newline.
  */
-export default function MessageInput({ onSend, disabled, replyingTo, onCancelReply }: MessageInputProps) {
+export default function MessageInput({
+  chatId,
+  focusTrigger,
+  onSend,
+  disabled,
+  replyingTo,
+  onCancelReply,
+}: MessageInputProps) {
   const [text, setText] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -25,6 +34,23 @@ export default function MessageInput({ onSend, disabled, replyingTo, onCancelRep
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus input when entering a chat, switching chats, or when clicking contacts
+  useEffect(() => {
+    if (!disabled && textareaRef.current) {
+      const timer = setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [chatId, focusTrigger, disabled]);
+
+  // Also auto-focus when replying to a message
+  useEffect(() => {
+    if (replyingTo && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [replyingTo]);
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();

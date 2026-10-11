@@ -108,6 +108,10 @@ export async function searchMessages(
   return request<SearchMessageResult[]>(`/api/messages/search?${params}`);
 }
 
+export async function getMessageById(id: string) {
+  return request<Message>(`/api/messages/${encodeURIComponent(id)}`);
+}
+
 export async function sendMessage(chatId: string, text: string, replyToMessageId?: string) {
   const body: SendMessageRequest = { chatId, text, replyToMessageId };
   return request<Message>("/api/messages", {

@@ -19,6 +19,8 @@ import {
   MutedIcon,
   UserIcon,
   GroupIcon,
+  EyeIcon,
+  EyeOffIcon,
 } from "@/components/Icons";
 
 interface ChatSidebarProps {
@@ -41,6 +43,8 @@ interface ChatSidebarProps {
   onToggleAutoRead?: () => void;
   onToggleArchive?: (chatId: string) => void;
   onToggleMute?: (chatId: string) => void;
+  privacyBlur?: boolean;
+  onTogglePrivacyBlur?: () => void;
 }
 
 type ChatFilter = "all" | "unread" | "groups";
@@ -77,6 +81,8 @@ export default function ChatSidebar({
   onToggleAutoRead,
   onToggleArchive,
   onToggleMute,
+  privacyBlur = false,
+  onTogglePrivacyBlur,
 }: ChatSidebarProps) {
   const [search, setSearch] = useState("");
   const [menuAnchor, setMenuAnchor] = useState<"header" | "rail" | null>(null);
@@ -300,6 +306,17 @@ export default function ChatSidebar({
             {autoReadReceipts ? "Turn off read receipts" : "Turn on read receipts (Off)"}
           </button>
         )}
+        {onTogglePrivacyBlur && (
+          <button
+            className="dropdown-item"
+            onClick={() => {
+              setMenuAnchor(null);
+              onTogglePrivacyBlur();
+            }}
+          >
+            {privacyBlur ? "Turn off privacy blur (Alt + /)" : "Turn on privacy blur (Alt + /)"}
+          </button>
+        )}
         {onTestNotification && (
           <button
             className="dropdown-item"
@@ -441,6 +458,18 @@ export default function ChatSidebar({
             <h2>{TAB_TITLES[activeTab]}</h2>
           )}
           <div className="sidebar-header-actions">
+            {onTogglePrivacyBlur && (
+              <button
+                id="sidebar-privacy-blur-btn"
+                className={`icon-btn ${privacyBlur ? "active" : ""}`}
+                title={privacyBlur ? "Matikan Blur Privasi (Alt + /)" : "Aktifkan Blur Privasi (Alt + /)"}
+                aria-label={privacyBlur ? "Disable privacy blur" : "Enable privacy blur"}
+                onClick={onTogglePrivacyBlur}
+                style={privacyBlur ? { color: "var(--accent-primary)" } : undefined}
+              >
+                {privacyBlur ? <EyeOffIcon size={22} /> : <EyeIcon size={22} />}
+              </button>
+            )}
             <button
               id="new-chat-btn"
               className="icon-btn"
