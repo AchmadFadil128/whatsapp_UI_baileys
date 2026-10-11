@@ -36,10 +36,16 @@ Next.js Frontend (Browser)
 ## ✨ Fitur Unggulan
 
 ### 1. 💬 Obrolan & Pesan Lengkap
-- Tampilan obrolan personal dan grup.
+- Tampilan obrolan personal dan grup dengan desain modern WhatsApp Web.
 - Mendukung berbagai jenis pesan: teks, gambar, video, audio/voice notes, dokumen, stiker, dan *video notes* (PTV).
 - Mendukung pesan kutipan (*quoted/reply message*).
-- Indikator centang status pesan (terkirim, terkirim ke server, dibaca/centang biru).
+- **Auto-Focus Input Chat**: Saat membuka atau berpindah obrolan, kursor otomatis aktif di kolom input pesan sehingga Anda dapat langsung mengetik tanpa perlu klik manual terlebih dahulu.
+- **Navigasi Kutipan Interaktif (Reply Jump & Highlight)**: Mengklik kotak balasan (*reply preview*) pada gelembung pesan akan secara otomatis menggulir (*smooth scroll*) layar langsung ke pesan yang dimaksud dan memberikan efek sorotan bercahaya (*glow/pulse highlight*). Jika pesan berada di riwayat terdahulu, sistem akan mengambilnya dari database dan menampilkannya seketika.
+- **Manajemen Scroll Cerdas (*Smart Scroll Retention*)**:
+  - **Scroll Retention saat Load Pesan Lama**: Saat menggulir ke atas untuk memuat pesan lama (*infinite scroll*), posisi scroll dipertahankan secara akurat sehingga pandangan Anda tidak terlempar kembali ke bawah.
+  - **Bebas Gangguan saat Membaca Pesan Lama**: Ketika Anda sedang tidak berada di paling bawah (sedang membaca pesan lama), pesan baru yang masuk tidak akan otomatis menarik layar ke bawah.
+  - **Tombol Floating Scroll to Bottom**: Tombol melayang di pojok kanan bawah dengan ikon panah yang memudahkan Anda melompat kembali ke pesan paling baru kapan saja.
+- Indikator centang status pesan (pending, terkirim, terkirim ke server, dibaca/centang biru).
 - Fitur mengunggah dan mengunduh berkas generik (seperti `.pdf`, `.zip`, dll.) secara langsung dari layar obrolan.
 
 ### 2. 🔄 Tab Status / Story Terpisah
@@ -57,7 +63,10 @@ Next.js Frontend (Browser)
 - Terintegrasi di seluruh tab (Chats, Status, dan Channels).
 - Nama alias tersimpan secara persisten di penyimpanan lokal browser (*localStorage*).
 
-### 5. 🛡️ Kontrol Privasi & Kehadiran (Presence Toggles)
+### 5. 🛡️ Kontrol Privasi & Kehadiran (Privacy & Presence Controls)
+- **Toggle Blur Privasi Teks (`Alt + /`)**: Fitur privasi untuk menyamarkan / memburamkan (*blur*) teks percakapan, media gambar/video, preview chat sidebar, nama kontak, dan pesan kutipan guna menjaga kerahasiaan saat berada di ruang publik atau saat *screen sharing*.
+  - **Hover Reveal**: Konten yang diburamkan dapat terbaca dengan jelas cukup dengan mengarahkan kursor mouse (*hover*) ke elemen tersebut.
+  - **Shortcut Cepat**: Tekan kombinasi tombol `Alt + /` di halaman mana saja untuk mengaktifkan/menonaktifkan mode privasi seketika, atau gunakan tombol ikon mata di header sidebar dan menu pengaturan.
 - **Toggle Online / Offline**: Pengguna dapat memilih status kehadiran apakah ingin terlihat *"Online"* atau *"Offline/Unavailable"* kapan saja melalui menu titik tiga di sidebar.
 - **Toggle Auto Read Receipts (Centang Biru)**: Opsi untuk mematikan atau menyalakan pengiriman tanda centang biru saat Anda membaca pesan. Anda dapat membaca pesan secara rahasia tanpa lawan bicara mengetahuinya.
 
@@ -175,7 +184,7 @@ whatsapp_UI_baileys/
 │   │   │   ├── channels/       # API endpoints untuk saluran/newsletters
 │   │   │   ├── chats/          # API endpoints data obrolan & riwayat
 │   │   │   ├── media/          # API streaming file media terenkripsi
-│   │   │   ├── messages/       # API pengiriman pesan
+│   │   │   ├── messages/       # API pengiriman pesan & pengambilan detail pesan ([id])
 │   │   │   └── whatsapp/       # Endpoint manajemen koneksi, presence, & auth
 │   │   ├── page.tsx            # Komponen halaman utama aplikasi
 │   │   └── layout.tsx          # Root layout
