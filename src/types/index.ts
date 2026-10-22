@@ -19,6 +19,7 @@ export interface Chat {
   isGroup: boolean;
   isArchived?: boolean;
   isMuted?: boolean;
+  isPinned?: boolean;
   profilePicUrl?: string;
 }
 
@@ -42,6 +43,7 @@ export interface Message {
   status?: MessageStatus;
   pushName?: string;
   chatName?: string;
+  isStarred?: boolean;
 }
 
 export interface SearchMessageResult extends Message {
@@ -101,6 +103,7 @@ export interface MessageStatusEvent {
   messageId: string;
   chatId: string;
   status: MessageStatus;
+  isStarred?: boolean;
 }
 
 export interface ChatUpdateEvent {
@@ -118,7 +121,9 @@ export interface ServerToClientEvents {
   "whatsapp:connection": (data: ConnectionUpdate) => void;
   "message:received": (data: MessageEvent) => void;
   "message:updated": (data: MessageStatusEvent) => void;
+  "message:deleted": (data: { messageId: string; chatId: string }) => void;
   "chat:updated": (data: ChatUpdateEvent) => void;
+  "chat:deleted": (data: { chatId: string }) => void;
   "typing:updated": (data: TypingEvent) => void;
 }
 

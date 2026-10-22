@@ -11,6 +11,8 @@ import {
   DocumentIcon,
   DownloadIcon,
   MicIcon,
+  StarIcon,
+  TrashIcon,
 } from "@/components/Icons";
 
 interface MessageBubbleProps {
@@ -18,6 +20,8 @@ interface MessageBubbleProps {
   showSender?: boolean;
   onReply?: () => void;
   onQuotedClick?: (quotedMessageId: string) => void;
+  onToggleStar?: () => void;
+  onDelete?: () => void;
   isHighlighted?: boolean;
 }
 
@@ -31,6 +35,8 @@ export default function MessageBubble({
   showSender = false,
   onReply,
   onQuotedClick,
+  onToggleStar,
+  onDelete,
   isHighlighted = false,
 }: MessageBubbleProps) {
   // Do not display unsupported messages or unsupported events
@@ -223,11 +229,34 @@ export default function MessageBubble({
   return (
     <>
       <div id={`msg-${message.id}`} className={`message-row ${direction} ${isHighlighted ? "highlighted" : ""}`}>
-        {onReply && (
+        {(onReply || onToggleStar || onDelete) && (
           <div className="message-action-menu">
-            <button className="reply-action-btn" onClick={onReply} title="Reply" aria-label="Reply">
-              <ReplyIcon size={18} />
-            </button>
+            {onReply && (
+              <button className="reply-action-btn" onClick={onReply} title="Reply" aria-label="Reply">
+                <ReplyIcon size={18} />
+              </button>
+            )}
+            {onToggleStar && (
+              <button
+                className="reply-action-btn"
+                onClick={onToggleStar}
+                title={message.isStarred ? "Unstar message" : "Star message"}
+                aria-label="Star"
+                style={{ color: message.isStarred ? "var(--accent-primary, #eab308)" : undefined }}
+              >
+                <StarIcon size={16} filled={message.isStarred} />
+              </button>
+            )}
+            {onDelete && (
+              <button
+                className="reply-action-btn"
+                onClick={onDelete}
+                title="Delete for me"
+                aria-label="Delete message"
+              >
+                <TrashIcon size={16} />
+              </button>
+            )}
           </div>
         )}
         <div className={`message-bubble ${message.type === "text" ? "inline-footer" : ""}`}>
@@ -252,6 +281,11 @@ export default function MessageBubble({
           )}
           {renderContent()}
           <div className="message-footer">
+            {message.isStarred && (
+              <span className="message-star" title="Starred" style={{ display: "inline-flex", color: "#eab308", marginRight: "3px" }}>
+                <StarIcon size={12} filled />
+              </span>
+            )}
             <span className="message-time">{formatTime(message.timestamp)}</span>
             <span className="message-status">{renderStatusIcon()}</span>
           </div>

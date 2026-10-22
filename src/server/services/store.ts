@@ -36,6 +36,8 @@ class Store {
           isGroup: c.isGroup,
           isArchived: c.isArchived,
           isMuted: c.isMuted,
+          isPinned: c.isPinned,
+          profilePicUrl: c.profilePicUrl || undefined,
         });
       }
 
@@ -45,6 +47,7 @@ class Store {
           id: c.id,
           name: c.name || undefined,
           pushName: c.pushName || undefined,
+          profilePicUrl: c.profilePicUrl || undefined,
         });
       }
 
@@ -77,6 +80,8 @@ class Store {
           isGroup: Boolean(chat.isGroup),
           isArchived: Boolean(chat.isArchived),
           isMuted: Boolean(chat.isMuted),
+          isPinned: Boolean(chat.isPinned),
+          profilePicUrl: chat.profilePicUrl || null,
         },
         update: {
           name: chat.name,
@@ -84,6 +89,10 @@ class Store {
           lastMessageTimestamp: BigInt(chat.lastMessageTimestamp || 0),
           unreadCount: chat.unreadCount || 0,
           isGroup: Boolean(chat.isGroup),
+          isArchived: chat.isArchived !== undefined ? Boolean(chat.isArchived) : undefined,
+          isMuted: chat.isMuted !== undefined ? Boolean(chat.isMuted) : undefined,
+          isPinned: chat.isPinned !== undefined ? Boolean(chat.isPinned) : undefined,
+          profilePicUrl: chat.profilePicUrl || undefined,
         },
       });
     } catch (err) {
@@ -106,13 +115,17 @@ class Store {
             ? ""
             : c.lastMessage,
       }))
-      .sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
+      .sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return b.lastMessageTimestamp - a.lastMessageTimestamp;
+      });
   }
 
   async getChatsFromDb(): Promise<Chat[]> {
     try {
       const dbChats = await prisma.chat.findMany({
-        orderBy: { lastMessageTimestamp: "desc" },
+        orderBy: [{ isPinned: "desc" }, { lastMessageTimestamp: "desc" }],
       });
       return dbChats.map((c) => ({
         id: c.id,
@@ -128,6 +141,8 @@ class Store {
         isGroup: c.isGroup,
         isArchived: c.isArchived,
         isMuted: c.isMuted,
+        isPinned: c.isPinned,
+        profilePicUrl: c.profilePicUrl || undefined,
       }));
     } catch (err) {
       logger.error(err, "Failed to query chats from database, fallback to cache");
@@ -246,6 +261,57 @@ class Store {
     }
   }
 
+  /**
+   * Toggles the pinned state for a chat.
+   */
+  async pinChat(chatId: string, isPinned: boolean): Promise<void> {
+    const chat = this.chats.get(chatId);
+    if (chat) {
+      chat.isPinned = isPinned;
+    }
+
+    try {
+      await prisma.chat.updateMany({
+        where: { id: chatId },
+        data: { isPinned },
+      });
+    } catch (err) {
+      logger.error({ err, chatId }, "Failed to pin chat in database");
+    }
+  }
+
+  /**
+   * Deletes a chat from cache and database (cascades messages).
+   */
+  async deleteChat(chatId: string): Promise<void> {
+    this.chats.delete(chatId);
+    try {
+      await prisma.chat.deleteMany({
+        where: { id: chatId },
+      });
+    } catch (err) {
+      logger.error({ err, chatId }, "Failed to delete chat in database");
+    }
+  }
+
+  /**
+   * Updates low-res profile picture URL for a chat.
+   */
+  async updateChatProfilePicUrl(chatId: string, profilePicUrl: string): Promise<void> {
+    const chat = this.chats.get(chatId);
+    if (chat) {
+      chat.profilePicUrl = profilePicUrl;
+    }
+    try {
+      await prisma.chat.updateMany({
+        where: { id: chatId },
+        data: { profilePicUrl },
+      });
+    } catch (err) {
+      logger.error({ err, chatId }, "Failed to update chat profilePicUrl in database");
+    }
+  }
+
   // ─── Messages ─────────────────────────────────────────────
 
   async addMessage(message: Message): Promise<void> {
@@ -292,6 +358,7 @@ class Store {
           fromMe: message.fromMe,
           pushName: message.pushName || null,
           status: message.status || "pending",
+          isStarred: Boolean(message.isStarred),
         },
         update:
           message.chatId === "status@broadcast"
@@ -299,6 +366,7 @@ class Store {
             : {
                 status: message.status || "pending",
                 text: message.text || null,
+                isStarred: message.isStarred !== undefined ? Boolean(message.isStarred) : undefined,
               },
       });
     } catch (err) {
@@ -378,6 +446,7 @@ class Store {
           fromMe: m.fromMe,
           status: (m.status || "pending") as MessageStatus,
           pushName: m.pushName || undefined,
+          isStarred: m.isStarred,
         }));
     } catch (err) {
       logger.error({ err, chatId }, "Failed to query messages from database");
@@ -455,6 +524,7 @@ class Store {
             status: (m.status || "pending") as MessageStatus,
             pushName: m.pushName || undefined,
             chatName,
+            isStarred: m.isStarred,
           };
         });
     } catch (err) {
@@ -483,10 +553,91 @@ class Store {
         fromMe: m.fromMe,
         status: (m.status || "pending") as MessageStatus,
         pushName: m.pushName || undefined,
+        isStarred: m.isStarred,
       };
     } catch (err) {
       logger.error({ err, messageId }, "Failed to get message from database");
       return undefined;
+    }
+  }
+
+  /**
+   * Gets the oldest message in a chat (used for backward pagination / fetchMessageHistory).
+   */
+  async getOldestMessage(chatId: string): Promise<Message | undefined> {
+    try {
+      const m = await prisma.message.findFirst({
+        where: {
+          chatId,
+          type: { notIn: ["unknown", "reaction"] },
+        },
+        orderBy: { timestamp: "asc" },
+      });
+      if (!m) return undefined;
+      return {
+        id: m.id,
+        chatId: m.chatId,
+        senderId: m.senderId,
+        timestamp: Number(m.timestamp),
+        type: m.type as MessageType,
+        text: m.text || undefined,
+        media: m.media as Message["media"],
+        quotedMessageId: m.quotedMessageId || undefined,
+        quotedMessage: m.quotedMessage ? (m.quotedMessage as unknown as QuotedMessage) : undefined,
+        fromMe: m.fromMe,
+        status: (m.status || "pending") as MessageStatus,
+        pushName: m.pushName || undefined,
+        isStarred: m.isStarred,
+      };
+    } catch (err) {
+      logger.error({ err, chatId }, "Failed to get oldest message");
+      return undefined;
+    }
+  }
+
+  /**
+   * Toggles the starred state for a message.
+   */
+  async starMessage(_chatId: string, messageId: string, isStarred: boolean): Promise<void> {
+    try {
+      await prisma.message.updateMany({
+        where: { id: messageId },
+        data: { isStarred },
+      });
+    } catch (err) {
+      logger.error({ err, messageId }, "Failed to star message in database");
+    }
+  }
+
+  /**
+   * Deletes a message and its media from database.
+   */
+  async deleteMessage(chatId: string, messageId: string): Promise<void> {
+    try {
+      await prisma.media.deleteMany({ where: { id: messageId } });
+      await prisma.message.deleteMany({ where: { id: messageId } });
+
+      // Refresh chat last message if deleted message was the last one
+      const remaining = await this.getMessages(chatId, 1);
+      const chat = this.chats.get(chatId);
+      if (chat) {
+        if (remaining.length > 0) {
+          const latest = remaining[0];
+          chat.lastMessage = latest.text || `[${latest.type}]`;
+          chat.lastMessageTimestamp = latest.timestamp;
+        } else {
+          chat.lastMessage = "";
+        }
+        await prisma.chat.updateMany({
+          where: { id: chatId },
+          data: {
+            lastMessage: chat.lastMessage || null,
+            lastMessageTimestamp: BigInt(chat.lastMessageTimestamp || 0),
+          },
+        });
+      }
+    } catch (err) {
+      logger.error({ err, messageId }, "Failed to delete message from database");
     }
   }
 
@@ -655,18 +806,19 @@ class Store {
     fileSize?: number
   ): Promise<void> {
     try {
+      const bytesData = new Uint8Array(buffer);
       await prisma.media.upsert({
         where: { id: messageId },
         create: {
           id: messageId,
           mimetype,
-          data: buffer,
+          data: bytesData,
           fileName: fileName || null,
           fileSize: fileSize || buffer.length,
         },
         update: {
           mimetype,
-          data: buffer,
+          data: bytesData,
           fileName: fileName || null,
           fileSize: fileSize || buffer.length,
         },

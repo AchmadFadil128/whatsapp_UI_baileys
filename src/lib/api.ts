@@ -75,10 +75,41 @@ export async function archiveChat(chatId: string, isArchived: boolean) {
   });
 }
 
-export async function muteChat(chatId: string, isMuted: boolean) {
+export async function muteChat(chatId: string, isMuted: boolean, durationMs?: number) {
   return request(`/api/chats/${encodeURIComponent(chatId)}/mute`, {
     method: "POST",
-    body: JSON.stringify({ isMuted }),
+    body: JSON.stringify({ isMuted, durationMs }),
+  });
+}
+
+export async function pinChat(chatId: string, isPinned: boolean) {
+  return request(`/api/chats/${encodeURIComponent(chatId)}/pin`, {
+    method: "POST",
+    body: JSON.stringify({ isPinned }),
+  });
+}
+
+export async function markChatRead(chatId: string, markRead = true) {
+  return request(`/api/chats/${encodeURIComponent(chatId)}/read`, {
+    method: "POST",
+    body: JSON.stringify({ markRead }),
+  });
+}
+
+export async function deleteChat(chatId: string) {
+  return request(`/api/chats/${encodeURIComponent(chatId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getChatAvatar(chatId: string) {
+  return request<{ url: string | null }>(`/api/chats/${encodeURIComponent(chatId)}/avatar`);
+}
+
+export async function fetchChatHistory(chatId: string, count = 50) {
+  return request(`/api/chats/${encodeURIComponent(chatId)}/history`, {
+    method: "POST",
+    body: JSON.stringify({ count }),
   });
 }
 
@@ -138,6 +169,35 @@ export async function sendMediaMessage(
   });
 
   return (await response.json()) as ApiResponse<Message>;
+}
+
+export async function starMessage(chatId: string, messageId: string, isStarred: boolean) {
+  return request(`/api/messages/${encodeURIComponent(messageId)}/star`, {
+    method: "POST",
+    body: JSON.stringify({ chatId, isStarred }),
+  });
+}
+
+export async function deleteMessage(chatId: string, messageId: string) {
+  const params = new URLSearchParams({ chatId });
+  return request(`/api/messages/${encodeURIComponent(messageId)}?${params}`, {
+    method: "DELETE",
+  });
+}
+
+// ─── User Queries & Profile ───────────────────────────────────
+
+export async function checkOnWhatsApp(phone: string) {
+  const params = new URLSearchParams({ phone });
+  return request<{ exists: boolean; jid: string }>(`/api/whatsapp/check-number?${params}`);
+}
+
+export async function getContactStatus(jid: string) {
+  return request<{ status: string | null }>(`/api/contacts/${encodeURIComponent(jid)}/status`);
+}
+
+export async function getBusinessProfile(jid: string) {
+  return request<any>(`/api/contacts/${encodeURIComponent(jid)}/business-profile`);
 }
 
 // ─── Statuses ─────────────────────────────────────────────────

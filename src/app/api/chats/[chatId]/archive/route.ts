@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { whatsappService } from "@/server/services/whatsapp.service";
 import { store } from "@/server/services/store";
 import type { ApiResponse } from "@/types";
 
 /**
  * POST /api/chats/:chatId/archive
- * Toggles the archive state of a chat.
+ * Toggles the archive state of a chat via native Baileys chatModify.
  */
 export async function POST(
   request: NextRequest,
@@ -23,7 +24,11 @@ export async function POST(
     const body = await request.json();
     const isArchived = Boolean(body.isArchived);
 
-    await store.archiveChat(chatId, isArchived);
+    if (whatsappService.isConnected()) {
+      await whatsappService.archiveChat(chatId, isArchived);
+    } else {
+      await store.archiveChat(chatId, isArchived);
+    }
 
     return NextResponse.json({
       success: true,

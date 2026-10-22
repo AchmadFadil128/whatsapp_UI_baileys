@@ -9,6 +9,7 @@ import makeWASocket, {
   type BaileysEventMap,
   type ConnectionState,
   type proto,
+  type MinimalMessage,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import { EventEmitter } from "events";
@@ -525,37 +526,414 @@ class WhatsAppService extends EventEmitter {
   }
 
   /**
-   * Marks a chat as read.
+   * Helper to retrieve the latest message in a chat formatted as MinimalMessage
+   * for Baileys chatModify reconciliation.
    */
-  async markChatRead(chatId: string): Promise<void> {
+  private async getLastMessageForChat(jid: string): Promise<MinimalMessage | null> {
+    const messages = await store.getMessages(jid, 1);
+    if (!messages || messages.length === 0) return null;
+    const last = messages[messages.length - 1];
+    const raw = this.rawMessages.get(last.id);
+    if (raw?.key && raw.messageTimestamp) {
+      return {
+        key: raw.key,
+        messageTimestamp: raw.messageTimestamp,
+      };
+    }
+    return {
+      key: {
+        remoteJid: jid,
+        id: last.id,
+        fromMe: last.fromMe,
+        participant:
+          jid.endsWith("@g.us") && !last.fromMe
+            ? last.senderId.includes("@")
+              ? last.senderId
+              : `${last.senderId}@s.whatsapp.net`
+            : undefined,
+      },
+      messageTimestamp: last.timestamp,
+    };
+  }
+
+  /**
+   * Marks a chat as read or unread via Baileys native readMessages and chatModify.
+   */
+  async markChatRead(chatId: string, markRead: boolean = true): Promise<void> {
     if (!this.socket || !this.isConnected()) return;
 
     try {
-      const messages = await store.getMessages(chatId, 1);
-      if (messages.length > 0) {
-        const lastMsg = messages[messages.length - 1];
-        await this.socket.readMessages([
-          {
-            remoteJid: chatId,
-            id: lastMsg.id,
-            participant: chatId.endsWith("@g.us")
-              ? lastMsg.senderId
-              : undefined,
-          },
-        ]);
-        store.markChatRead(chatId);
-        const chat = store.getChat(chatId);
-        if (chat) {
-          this.emit("chat:updated", { chat });
+      const targetJid = chatId.includes("@") ? chatId : `${chatId}@s.whatsapp.net`;
+      const lastMsg = await this.getLastMessageForChat(targetJid);
+
+      if (markRead) {
+        if (lastMsg?.key) {
+          await this.socket.readMessages([lastMsg.key]);
         }
+        await this.socket.chatModify(
+          { markRead: true, lastMessages: lastMsg ? [lastMsg] : [] },
+          targetJid
+        );
+        await store.markChatRead(chatId);
+      } else {
+        await this.socket.chatModify(
+          { markRead: false, lastMessages: lastMsg ? [lastMsg] : [] },
+          targetJid
+        );
+      }
+
+      const chat = store.getChat(chatId);
+      if (chat) {
+        if (!markRead) {
+          chat.unreadCount = Math.max(chat.unreadCount, 1);
+          await store.upsertChat(chat);
+        }
+        this.emit("chat:updated", { chat });
       }
     } catch (error) {
-      logger.error(error, "Failed to mark chat as read");
+      logger.error({ error, chatId, markRead }, "Failed to update chat read status");
     }
   }
 
   /**
-   * Sets the connection presence (online/offline)
+   * Archives or unarchives a chat using Baileys chatModify.
+   */
+  async archiveChat(chatId: string, archive: boolean): Promise<void> {
+    if (!this.socket || !this.isConnected()) {
+      throw new Error("WhatsApp is not connected");
+    }
+
+    try {
+      const targetJid = chatId.includes("@") ? chatId : `${chatId}@s.whatsapp.net`;
+      const lastMsg = await this.getLastMessageForChat(targetJid);
+
+      await this.socket.chatModify(
+        {
+          archive,
+          lastMessages: lastMsg ? [lastMsg] : [],
+        },
+        targetJid
+      );
+
+      await store.archiveChat(chatId, archive);
+      const chat = store.getChat(chatId);
+      if (chat) {
+        this.emit("chat:updated", { chat });
+      }
+    } catch (error) {
+      logger.error({ error, chatId, archive }, "Failed to archive chat via Baileys");
+      throw error;
+    }
+  }
+
+  /**
+   * Mutes or unmutes a chat using Baileys chatModify.
+   * Pass duration in milliseconds (e.g. 28800000 for 8 hours) or null to unmute.
+   */
+  async muteChat(chatId: string, durationMs: number | null): Promise<void> {
+    if (!this.socket || !this.isConnected()) {
+      throw new Error("WhatsApp is not connected");
+    }
+
+    try {
+      const targetJid = chatId.includes("@") ? chatId : `${chatId}@s.whatsapp.net`;
+      await this.socket.chatModify({ mute: durationMs }, targetJid);
+      await store.muteChat(chatId, durationMs !== null);
+      const chat = store.getChat(chatId);
+      if (chat) {
+        this.emit("chat:updated", { chat });
+      }
+    } catch (error) {
+      logger.error({ error, chatId, durationMs }, "Failed to mute chat via Baileys");
+      throw error;
+    }
+  }
+
+  /**
+   * Pins or unpins a chat using Baileys chatModify.
+   */
+  async pinChat(chatId: string, pin: boolean): Promise<void> {
+    if (!this.socket || !this.isConnected()) {
+      throw new Error("WhatsApp is not connected");
+    }
+
+    try {
+      const targetJid = chatId.includes("@") ? chatId : `${chatId}@s.whatsapp.net`;
+      await this.socket.chatModify({ pin }, targetJid);
+      await store.pinChat(chatId, pin);
+      const chat = store.getChat(chatId);
+      if (chat) {
+        this.emit("chat:updated", { chat });
+      }
+    } catch (error) {
+      logger.error({ error, chatId, pin }, "Failed to pin chat via Baileys");
+      throw error;
+    }
+  }
+
+  /**
+   * Deletes a chat using Baileys chatModify.
+   */
+  async deleteChat(chatId: string): Promise<void> {
+    if (!this.socket || !this.isConnected()) {
+      throw new Error("WhatsApp is not connected");
+    }
+
+    try {
+      const targetJid = chatId.includes("@") ? chatId : `${chatId}@s.whatsapp.net`;
+      const lastMsg = await this.getLastMessageForChat(targetJid);
+      if (lastMsg) {
+        await this.socket.chatModify(
+          {
+            delete: true,
+            lastMessages: [lastMsg],
+          },
+          targetJid
+        );
+      }
+
+      await store.deleteChat(chatId);
+      this.emit("chat:deleted", { chatId });
+    } catch (error) {
+      logger.error({ error, chatId }, "Failed to delete chat via Baileys");
+      throw error;
+    }
+  }
+
+  /**
+   * Stars or unstars a message using Baileys chatModify.
+   */
+  async starMessage(
+    chatId: string,
+    messageId: string,
+    star: boolean
+  ): Promise<void> {
+    if (!this.socket || !this.isConnected()) {
+      throw new Error("WhatsApp is not connected");
+    }
+
+    try {
+      const targetJid = chatId.includes("@") ? chatId : `${chatId}@s.whatsapp.net`;
+      const msg = await store.getMessage(chatId, messageId);
+      const fromMe = msg ? msg.fromMe : false;
+
+      await this.socket.chatModify(
+        {
+          star: {
+            messages: [{ id: messageId, fromMe }],
+            star,
+          },
+        },
+        targetJid
+      );
+
+      await store.starMessage(chatId, messageId, star);
+      this.emit("message:updated", {
+        messageId,
+        chatId,
+        status: msg?.status || "sent",
+        isStarred: star,
+      });
+    } catch (error) {
+      logger.error({ error, chatId, messageId, star }, "Failed to star message via Baileys");
+      throw error;
+    }
+  }
+
+  /**
+   * Deletes a message for me only using Baileys chatModify deleteForMe.
+   */
+  async deleteMessageForMe(chatId: string, messageId: string): Promise<void> {
+    if (!this.socket || !this.isConnected()) {
+      throw new Error("WhatsApp is not connected");
+    }
+
+    try {
+      const targetJid = chatId.includes("@") ? chatId : `${chatId}@s.whatsapp.net`;
+      const msg = await store.getMessage(chatId, messageId);
+      if (!msg) {
+        throw new Error("Message not found");
+      }
+
+      const raw = this.rawMessages.get(messageId);
+      const key = raw?.key || {
+        id: messageId,
+        remoteJid: targetJid,
+        fromMe: msg.fromMe,
+        participant:
+          targetJid.endsWith("@g.us") && !msg.fromMe ? msg.senderId : undefined,
+      };
+
+      await this.socket.chatModify(
+        {
+          deleteForMe: {
+            deleteMedia: true,
+            key,
+            timestamp: msg.timestamp,
+          },
+        },
+        targetJid
+      );
+
+      await store.deleteMessage(chatId, messageId);
+      this.emit("message:deleted", { messageId, chatId });
+    } catch (error) {
+      logger.error({ error, chatId, messageId }, "Failed to delete message for me via Baileys");
+      throw error;
+    }
+  }
+
+  /**
+   * Fetches low-resolution profile picture URL for a user or group.
+   * (Per requirement: low-res only, without 'image' argument)
+   */
+  async getProfilePictureUrl(jid: string): Promise<string | null> {
+    if (!this.socket || !this.isConnected()) return null;
+
+    try {
+      const targetJid = jid.includes("@") ? jid : `${jid}@s.whatsapp.net`;
+      // Calling sock.profilePictureUrl(targetJid) without 'image' retrieves the low-res preview
+      const url = await this.socket.profilePictureUrl(targetJid);
+      if (url) {
+        await store.updateChatProfilePicUrl(jid, url);
+      }
+      return url || null;
+    } catch {
+      // 404 or 401 privacy restrictions are expected when no profile picture exists
+      return null;
+    }
+  }
+
+  /**
+   * Fetches WhatsApp bio / status text for a user.
+   */
+  async fetchUserStatus(jid: string): Promise<string | null> {
+    if (!this.socket || !this.isConnected()) return null;
+
+    try {
+      const targetJid = jid.includes("@") ? jid : `${jid}@s.whatsapp.net`;
+      const result = await this.socket.fetchStatus(targetJid);
+      if (Array.isArray(result) && result.length > 0) {
+        const item = result[0] as any;
+        if (typeof item === "string") return item;
+        const statusField = item?.status;
+        if (typeof statusField === "string") return statusField;
+        if (typeof statusField?.status === "string") return statusField.status;
+        return null;
+      }
+      if (typeof result === "string") return result;
+      if (result && typeof (result as any).status === "string") {
+        return (result as any).status;
+      }
+      if (result && typeof (result as any).status?.status === "string") {
+        return (result as any).status.status;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetches business profile details for a WhatsApp business account.
+   */
+  async getBusinessProfile(jid: string): Promise<any | null> {
+    if (!this.socket || !this.isConnected()) return null;
+
+    try {
+      const targetJid = jid.includes("@") ? jid : `${jid}@s.whatsapp.net`;
+      return await this.socket.getBusinessProfile(targetJid);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Verifies if a given phone number or JID exists on WhatsApp.
+   */
+  async checkOnWhatsApp(
+    jidOrNumber: string
+  ): Promise<{ exists: boolean; jid: string } | null> {
+    if (!this.socket || !this.isConnected()) {
+      throw new Error("WhatsApp is not connected");
+    }
+
+    try {
+      const sanitized = jidOrNumber.replace(/\D/g, "");
+      const jid = sanitized.includes("@")
+        ? sanitized
+        : `${sanitized}@s.whatsapp.net`;
+      const results = await this.socket.onWhatsApp(jid);
+      const first = results?.[0];
+      if (!first) return null;
+      return { exists: Boolean(first.exists), jid: first.jid };
+    } catch (error) {
+      logger.error({ error, jidOrNumber }, "Failed to check if JID exists on WhatsApp");
+      return null;
+    }
+  }
+
+  /**
+   * Queries backwards chat history via Baileys fetchMessageHistory.
+   * Messages will arrive asynchronously via the messaging-history.set event.
+   */
+  async fetchChatHistory(chatId: string, count: number = 50): Promise<void> {
+    if (!this.socket || !this.isConnected()) return;
+
+    try {
+      const targetJid = chatId.includes("@") ? chatId : `${chatId}@s.whatsapp.net`;
+      const oldest = await store.getOldestMessage(targetJid);
+      if (oldest) {
+        const raw = this.rawMessages.get(oldest.id);
+        const key = raw?.key || {
+          id: oldest.id,
+          remoteJid: targetJid,
+          fromMe: oldest.fromMe,
+          participant:
+            targetJid.endsWith("@g.us") && !oldest.fromMe
+              ? oldest.senderId
+              : undefined,
+        };
+        await this.socket.fetchMessageHistory(count, key, oldest.timestamp);
+      }
+    } catch (error) {
+      logger.error({ error, chatId }, "Failed to fetch chat history via Baileys");
+    }
+  }
+
+  /**
+   * Sends presence update for a specific chat (e.g. typing / composing).
+   */
+  async sendChatPresence(
+    chatId: string,
+    presence: "composing" | "paused" | "recording"
+  ): Promise<void> {
+    if (!this.socket || !this.isConnected()) return;
+
+    try {
+      const targetJid = chatId.includes("@") ? chatId : `${chatId}@s.whatsapp.net`;
+      await this.socket.sendPresenceUpdate(presence, targetJid);
+    } catch (err) {
+      logger.warn({ err, chatId, presence }, "Failed to send chat presence update");
+    }
+  }
+
+  /**
+   * Subscribes to presence updates for a given chat.
+   */
+  async subscribePresence(chatId: string): Promise<void> {
+    if (!this.socket || !this.isConnected()) return;
+
+    try {
+      const targetJid = chatId.includes("@") ? chatId : `${chatId}@s.whatsapp.net`;
+      await this.socket.presenceSubscribe(targetJid);
+    } catch (err) {
+      logger.warn({ err, chatId }, "Failed to subscribe to chat presence");
+    }
+  }
+
+  /**
+   * Sets the global connection presence (online/offline).
    */
   async setPresence(status: "available" | "unavailable"): Promise<void> {
     if (!this.socket || !this.isConnected()) {
@@ -759,9 +1137,22 @@ class WhatsAppService extends EventEmitter {
         lastMessageTimestamp: Number(raw.conversationTimestamp) || 0,
         unreadCount: raw.unreadCount || 0,
         isGroup: chatId.endsWith("@g.us"),
+        isArchived: Boolean(raw.archived),
+        isPinned: Boolean(raw.pinned),
+        isMuted: Boolean((raw as any).mute || (raw as any).muteEndTime),
       };
       store.upsertChat(chat);
       this.emit("chat:updated", { chat });
+
+      // Opportunistically fetch low-res profile picture in background
+      if (!chat.profilePicUrl) {
+        this.getProfilePictureUrl(chatId).then((url) => {
+          if (url) {
+            chat.profilePicUrl = url;
+            this.emit("chat:updated", { chat });
+          }
+        }).catch(() => {});
+      }
     }
   }
 
@@ -779,6 +1170,16 @@ class WhatsAppService extends EventEmitter {
         }
         if (update.conversationTimestamp) {
           existing.lastMessageTimestamp = Number(update.conversationTimestamp);
+        }
+        if (update.archived !== undefined) {
+          existing.isArchived = Boolean(update.archived);
+        }
+        if (update.pinned !== undefined) {
+          existing.isPinned = Boolean(update.pinned);
+        }
+        const muteVal = (update as any).mute ?? (update as any).muteEndTime;
+        if (muteVal !== undefined) {
+          existing.isMuted = Boolean(muteVal);
         }
         store.upsertChat(existing);
         this.emit("chat:updated", { chat: existing });
@@ -860,7 +1261,12 @@ class WhatsAppService extends EventEmitter {
           lastMessageTimestamp: Number(raw.conversationTimestamp) || 0,
           unreadCount: raw.unreadCount || 0,
           isGroup: chatId.endsWith("@g.us"),
+          isArchived: Boolean(raw.archived),
+          isPinned: Boolean(raw.pinned),
+          isMuted: Boolean((raw as any).mute || (raw as any).muteEndTime),
         });
+        // Opportunistically queue low-res avatar fetch
+        this.getProfilePictureUrl(chatId).catch(() => {});
       }
     }
 

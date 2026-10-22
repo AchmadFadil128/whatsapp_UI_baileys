@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
 
 import type { Message } from "@/types";
+import { getSocket } from "@/lib/socket";
 import { CloseIcon, DocumentIcon, EmojiIcon, PlusIcon, SendIcon, MicIcon } from "@/components/Icons";
 import EmojiPicker from "@/components/EmojiPicker";
 
@@ -34,6 +35,20 @@ export default function MessageInput({
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const notifyTyping = useCallback(() => {
+    if (!chatId) return;
+    const socket = getSocket();
+    socket.emit("typing:start", chatId);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("typing:stop", chatId);
+      typingTimeoutRef.current = null;
+    }, 2500);
+  }, [chatId]);
 
   // Auto-focus input when entering a chat, switching chats, or when clicking contacts
   useEffect(() => {
@@ -56,6 +71,14 @@ export default function MessageInput({
     const trimmed = text.trim();
     if ((!trimmed && !attachment) || disabled) return;
 
+    if (chatId) {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      getSocket().emit("typing:stop", chatId);
+    }
+
     onSend(trimmed, attachment || undefined);
     
     setText("");
@@ -70,7 +93,7 @@ export default function MessageInput({
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [text, attachment, disabled, onSend, previewUrl]);
+  }, [text, attachment, disabled, onSend, previewUrl, chatId]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -229,6 +252,7 @@ export default function MessageInput({
             onChange={(e) => {
               setText(e.target.value);
               handleInput();
+              notifyTyping();
             }}
             onKeyDown={handleKeyDown}
             rows={1}

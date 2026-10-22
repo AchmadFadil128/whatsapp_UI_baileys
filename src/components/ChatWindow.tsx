@@ -13,6 +13,7 @@ import {
   ChatsIcon,
   ChevronDownIcon,
 } from "@/components/Icons";
+import { getContactStatus } from "@/lib/api";
 
 interface ChatWindowProps {
   chat: Chat | null;
@@ -26,6 +27,8 @@ interface ChatWindowProps {
   onJumpToMessage?: (messageId: string) => void;
   onBack?: () => void;
   onRename?: (newName: string) => void;
+  onToggleStar?: (messageId: string) => void;
+  onDeleteMessage?: (messageId: string) => void;
 }
 
 /**
@@ -44,12 +47,15 @@ export default function ChatWindow({
   onJumpToMessage,
   onBack,
   onRename,
+  onToggleStar,
+  onDeleteMessage,
 }: ChatWindowProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [localHighlightedId, setLocalHighlightedId] = useState<string | null>(null);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+  const [contactStatus, setContactStatus] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -57,6 +63,28 @@ export default function ChatWindow({
   const isAtBottomRef = useRef(true);
   const prevMessagesRef = useRef<Message[]>([]);
   const prependScrollInfoRef = useRef<{ prevScrollHeight: number; prevScrollTop: number } | null>(null);
+
+  // Fetch WhatsApp user bio / status text
+  useEffect(() => {
+    if (!chat || chat.isGroup) {
+      setContactStatus(null);
+      return;
+    }
+    getContactStatus(chat.id)
+      .then((res) => {
+        if (res.success && res.data?.status) {
+          const val: any = res.data.status;
+          const statusText =
+            typeof val === "string"
+              ? val
+              : typeof val?.status === "string"
+              ? val.status
+              : null;
+          setContactStatus(statusText);
+        }
+      })
+      .catch(() => {});
+  }, [chat?.id, chat?.isGroup]);
 
   // Reset scroll and state when chat changes
   useEffect(() => {
@@ -279,8 +307,14 @@ export default function ChatWindow({
           </button>
         )}
         <div className="chat-header-avatar">
-          {chat.profilePicUrl ? (
-            <img src={chat.profilePicUrl} alt={chat.name} />
+          {chat.profilePicUrl || `/api/chats/${encodeURIComponent(chat.id)}/avatar?redirect=true` ? (
+            <img
+              src={chat.profilePicUrl || `/api/chats/${encodeURIComponent(chat.id)}/avatar?redirect=true`}
+              alt={chat.name}
+              onError={(e) => {
+                (e.currentTarget as HTMLElement).style.display = "none";
+              }}
+            />
           ) : isGroup ? (
             <GroupIcon size={24} />
           ) : (
@@ -341,8 +375,15 @@ export default function ChatWindow({
               </button>
             </div>
           )}
-          <div className="chat-header-status">
-            {isGroup ? "Group" : "Personal chat"}
+          <div
+            className="chat-header-status"
+            title={typeof contactStatus === "string" ? contactStatus : undefined}
+          >
+            {isGroup
+              ? "Group"
+              : typeof contactStatus === "string" && contactStatus
+              ? contactStatus
+              : "Personal chat"}
           </div>
         </div>
       </div>
@@ -417,6 +458,8 @@ export default function ChatWindow({
               showSender={isGroup}
               onReply={() => setReplyingTo(item.message)}
               onQuotedClick={handleQuotedClick}
+              onToggleStar={onToggleStar ? () => onToggleStar(item.message.id) : undefined}
+              onDelete={onDeleteMessage ? () => onDeleteMessage(item.message.id) : undefined}
               isHighlighted={item.message.id === activeHighlightId}
             />
           );

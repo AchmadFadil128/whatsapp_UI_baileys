@@ -21,6 +21,8 @@ import {
   GroupIcon,
   EyeIcon,
   EyeOffIcon,
+  PinIcon,
+  TrashIcon,
 } from "@/components/Icons";
 
 interface ChatSidebarProps {
@@ -43,6 +45,9 @@ interface ChatSidebarProps {
   onToggleAutoRead?: () => void;
   onToggleArchive?: (chatId: string) => void;
   onToggleMute?: (chatId: string) => void;
+  onTogglePin?: (chatId: string) => void;
+  onToggleRead?: (chatId: string) => void;
+  onDeleteChat?: (chatId: string) => void;
   privacyBlur?: boolean;
   onTogglePrivacyBlur?: () => void;
   onOpenSecuritySettings?: () => void;
@@ -82,6 +87,9 @@ export default function ChatSidebar({
   onToggleAutoRead,
   onToggleArchive,
   onToggleMute,
+  onTogglePin,
+  onToggleRead,
+  onDeleteChat,
   privacyBlur = false,
   onTogglePrivacyBlur,
   onOpenSecuritySettings,
@@ -243,11 +251,18 @@ export default function ChatSidebar({
     return lastMessage;
   }
 
-  function renderAvatar(name: string, isGroup: boolean, picUrl?: string) {
+  function renderAvatar(name: string, isGroup: boolean, picUrl?: string, chatId?: string) {
+    const avatarSrc = picUrl || (chatId ? `/api/chats/${encodeURIComponent(chatId)}/avatar?redirect=true` : undefined);
     return (
       <div className="chat-avatar">
-        {picUrl ? (
-          <img src={picUrl} alt={name} />
+        {avatarSrc ? (
+          <img
+            src={avatarSrc}
+            alt={name}
+            onError={(e) => {
+              (e.currentTarget as HTMLElement).style.display = "none";
+            }}
+          />
         ) : isGroup ? (
           <GroupIcon size={28} />
         ) : (
@@ -715,7 +730,7 @@ export default function ChatSidebar({
                         if (e.key === "Enter") onSelectChat(msg.chatId, msg.id, msg.timestamp);
                       }}
                     >
-                      {renderAvatar(chatDisplayName, chatObj?.isGroup ?? false, chatObj?.profilePicUrl)}
+                      {renderAvatar(chatDisplayName, chatObj?.isGroup ?? false, chatObj?.profilePicUrl, msg.chatId)}
                       <div className="chat-info">
                         <div className="chat-info-top">
                           <span className="chat-name">{chatDisplayName}</span>
@@ -796,7 +811,7 @@ export default function ChatSidebar({
                   if (e.key === "Enter") onSelectChat(chat.id);
                 }}
               >
-                {renderAvatar(chat.name, chat.isGroup, chat.profilePicUrl)}
+                {renderAvatar(chat.name, chat.isGroup, chat.profilePicUrl, chat.id)}
                 <div className="chat-info">
                   <div className="chat-info-top">
                     <span className="chat-name">{chat.name}</span>
@@ -813,6 +828,11 @@ export default function ChatSidebar({
                       {formatLastMessage(chat.lastMessage)}
                     </span>
                     <span className="chat-meta-icons">
+                      {chat.isPinned && (
+                        <span className="chat-pin-icon" title="Pinned chat" style={{ color: "var(--text-secondary)", display: "inline-flex" }}>
+                          <PinIcon size={16} />
+                        </span>
+                      )}
                       {chat.isMuted && (
                         <span className="chat-muted-icon" title="Muted">
                           <MutedIcon size={18} />
@@ -823,7 +843,7 @@ export default function ChatSidebar({
                           {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
                         </span>
                       )}
-                      {(onToggleArchive || onToggleMute) && (
+                      {(onToggleArchive || onToggleMute || onTogglePin || onToggleRead || onDeleteChat) && (
                         <button
                           className="chat-item-menu-btn"
                           aria-label="Chat options"
@@ -849,6 +869,30 @@ export default function ChatSidebar({
                     onClick={(e) => e.stopPropagation()}
                     role="menu"
                   >
+                    {onTogglePin && (
+                      <button
+                        className="dropdown-item"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTogglePin(chat.id);
+                          setContextMenuChatId(null);
+                        }}
+                      >
+                        {chat.isPinned ? "Unpin chat" : "Pin chat"}
+                      </button>
+                    )}
+                    {onToggleRead && (
+                      <button
+                        className="dropdown-item"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleRead(chat.id);
+                          setContextMenuChatId(null);
+                        }}
+                      >
+                        {chat.unreadCount > 0 ? "Mark as read" : "Mark as unread"}
+                      </button>
+                    )}
                     {onToggleArchive && (
                       <button
                         className="dropdown-item"
@@ -856,9 +900,8 @@ export default function ChatSidebar({
                           e.stopPropagation();
                           onToggleArchive(chat.id);
                           setContextMenuChatId(null);
-                          // If we unarchived it, maybe we want to keep them in view or not. It'll just disappear.
                           if (chat.isArchived && filteredChats.length === 1) {
-                             setShowArchived(false); // return to main if it was the last archived chat
+                             setShowArchived(false);
                           }
                         }}
                       >
@@ -875,6 +918,21 @@ export default function ChatSidebar({
                         }}
                       >
                         {chat.isMuted ? "Unmute notifications" : "Mute notifications"}
+                      </button>
+                    )}
+                    {onDeleteChat && (
+                      <button
+                        className="dropdown-item"
+                        style={{ color: "var(--danger, #ef4444)" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Delete chat with "${chat.name}"?`)) {
+                            onDeleteChat(chat.id);
+                          }
+                          setContextMenuChatId(null);
+                        }}
+                      >
+                        Delete chat
                       </button>
                     )}
                   </div>

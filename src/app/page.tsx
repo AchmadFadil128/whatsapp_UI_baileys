@@ -40,14 +40,29 @@ export default function Home() {
     logout,
   } = useWhatsApp();
 
-  const { chats, markRead } = useChats();
+  const {
+    chats,
+    markRead,
+    toggleArchive,
+    toggleMute,
+    togglePin,
+    toggleRead,
+    deleteChat,
+  } = useChats();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"chats" | "status" | "channels">("chats");
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
   const [targetMessage, setTargetMessage] = useState<{ id: string; timestamp?: number } | null>(null);
   const [focusTrigger, setFocusTrigger] = useState(0);
-  const { messages, isLoading: isLoadingMessages, hasMore, loadMore, appendMessage } =
-    useMessages(activeChatId, targetMessage?.timestamp);
+  const {
+    messages,
+    isLoading: isLoadingMessages,
+    hasMore,
+    loadMore,
+    appendMessage,
+    toggleStar,
+    deleteMessage,
+  } = useMessages(activeChatId, targetMessage?.timestamp);
 
   const { aliases, setAlias } = useChatAliases();
   const {
@@ -339,13 +354,13 @@ export default function Home() {
         onToggleAutoRead={handleToggleAutoRead}
         privacyBlur={privacyBlur}
         onTogglePrivacyBlur={handleTogglePrivacyBlur}
-        onToggleArchive={(id) => {
-          const chat = aliasedChats.find(c => c.id === id);
-          if (chat) api.archiveChat(id, !chat.isArchived);
-        }}
-        onToggleMute={(id) => {
-          const chat = aliasedChats.find(c => c.id === id);
-          if (chat) api.muteChat(id, !chat.isMuted);
+        onToggleArchive={toggleArchive}
+        onToggleMute={toggleMute}
+        onTogglePin={togglePin}
+        onToggleRead={toggleRead}
+        onDeleteChat={(id) => {
+          deleteChat(id);
+          if (activeChatId === id) setActiveChatId(null);
         }}
         onOpenSecuritySettings={() => setIsSecurityModalOpen(true)}
       />
@@ -375,6 +390,8 @@ export default function Home() {
           onJumpToMessage={handleJumpToMessage}
           onBack={activeChatId ? handleBack : undefined}
           onRename={(newName) => activeChatId && setAlias(activeChatId, newName)}
+          onToggleStar={toggleStar}
+          onDeleteMessage={deleteMessage}
         />
       )}
 

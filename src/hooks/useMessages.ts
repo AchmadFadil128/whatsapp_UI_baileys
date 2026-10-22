@@ -83,18 +83,34 @@ export function useMessages(chatId: string | null, targetTimestamp?: number | nu
       if (data.chatId === chatId) {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === data.messageId ? { ...m, status: data.status } : m
+            m.id === data.messageId
+              ? {
+                  ...m,
+                  status: data.status,
+                  ...(data.isStarred !== undefined
+                    ? { isStarred: data.isStarred }
+                    : {}),
+                }
+              : m
           )
         );
       }
     }
 
+    function onMessageDeleted(data: { messageId: string; chatId: string }) {
+      if (data.chatId === chatId) {
+        setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+      }
+    }
+
     socket.on("message:received", onMessageReceived);
     socket.on("message:updated", onMessageUpdated);
+    socket.on("message:deleted", onMessageDeleted);
 
     return () => {
       socket.off("message:received", onMessageReceived);
       socket.off("message:updated", onMessageUpdated);
+      socket.off("message:deleted", onMessageDeleted);
     };
   }, [chatId]);
 
@@ -123,11 +139,48 @@ export function useMessages(chatId: string | null, targetTimestamp?: number | nu
           return [...newMessages, ...prev];
         });
         setHasMore(res.data.length >= 50);
+
+        // If local messages exhausted, fetch older history via Baileys
+        if (res.data.length < 50) {
+          api.fetchChatHistory(chatId, 50).catch(() => {});
+        }
       }
     } finally {
       setIsLoading(false);
     }
   }, [chatId, isLoading, hasMore, messages]);
+
+  const toggleStar = useCallback(
+    async (messageId: string) => {
+      if (!chatId) return;
+      const msg = messages.find((m) => m.id === messageId);
+      const newStarred = !msg?.isStarred;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId ? { ...m, isStarred: newStarred } : m
+        )
+      );
+      try {
+        await api.starMessage(chatId, messageId, newStarred);
+      } catch (err) {
+        console.error("Failed to star message:", err);
+      }
+    },
+    [chatId, messages]
+  );
+
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!chatId) return;
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      try {
+        await api.deleteMessage(chatId, messageId);
+      } catch (err) {
+        console.error("Failed to delete message:", err);
+      }
+    },
+    [chatId]
+  );
 
   const appendMessage = useCallback((msg: Message) => {
     if (
@@ -144,5 +197,13 @@ export function useMessages(chatId: string | null, targetTimestamp?: number | nu
     });
   }, []);
 
-  return { messages, isLoading, hasMore, loadMore, appendMessage };
+  return {
+    messages,
+    isLoading,
+    hasMore,
+    loadMore,
+    appendMessage,
+    toggleStar,
+    deleteMessage,
+  };
 }

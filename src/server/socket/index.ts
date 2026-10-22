@@ -79,13 +79,13 @@ export function initSocketServer(
     // ─── Client Events ──────────────────────────────────────
     socket.on("typing:start", (chatId: string) => {
       if (whatsappService.isConnected()) {
-        logger.debug({ chatId }, "Typing start");
+        whatsappService.sendChatPresence(chatId, "composing");
       }
     });
 
     socket.on("typing:stop", (chatId: string) => {
       if (whatsappService.isConnected()) {
-        logger.debug({ chatId }, "Typing stop");
+        whatsappService.sendChatPresence(chatId, "paused");
       }
     });
 
@@ -116,8 +116,16 @@ export function initSocketServer(
     io?.emit("message:updated", data);
   });
 
+  whatsappService.on("message:deleted", (data: { messageId: string; chatId: string }) => {
+    io?.emit("message:deleted", data);
+  });
+
   whatsappService.on("chat:updated", (data: ChatUpdateEvent) => {
     io?.emit("chat:updated", data);
+  });
+
+  whatsappService.on("chat:deleted", (data: { chatId: string }) => {
+    io?.emit("chat:deleted", data);
   });
 
   whatsappService.on("typing:updated", (data: TypingEvent) => {
