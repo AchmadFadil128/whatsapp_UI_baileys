@@ -13,6 +13,7 @@ interface MessageInputProps {
   onSend: (text: string, file?: File) => void;
   disabled?: boolean;
   replyingTo?: Message | null;
+  replySenderName?: string;
   onCancelReply?: () => void;
 }
 
@@ -26,6 +27,7 @@ export default function MessageInput({
   onSend,
   disabled,
   replyingTo,
+  replySenderName,
   onCancelReply,
 }: MessageInputProps) {
   const [text, setText] = useState("");
@@ -164,7 +166,7 @@ export default function MessageInput({
         <div className="input-reply-preview">
           <div className="input-reply-preview-content">
             <div className="input-reply-preview-sender">
-              {replyingTo.fromMe ? "You" : (replyingTo.pushName || replyingTo.senderId.split("@")[0])}
+              {replySenderName || (replyingTo.fromMe ? "You" : (replyingTo.pushName || replyingTo.senderId.split("@")[0]))}
             </div>
             <div className="input-reply-preview-text">
               {replyingTo.text || "Message"}

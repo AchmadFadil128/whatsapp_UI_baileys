@@ -1,7 +1,10 @@
+import fs from "fs";
+import path from "path";
 import { prisma } from "@/server/db/client";
 import type { Chat, Message, Contact, MessageStatus, MessageType, QuotedMessage, SearchMessageResult } from "@/types";
 import { createLogger } from "@/server/lib/logger";
 import { resolveContactDisplayName, formatPhoneNumber } from "@/server/lib/contact-resolver";
+import { normalizeJid } from "@/server/lib/message-transformer";
 
 const logger = createLogger("store");
 
@@ -16,6 +19,8 @@ class Store {
   private lidToPn: Map<string, string> = new Map();
   private pnToLid: Map<string, string> = new Map();
   private pendingMappingSave: NodeJS.Timeout | null = null;
+  private userJid?: string;
+  private userLid?: string;
   private isInitialized = false;
 
   constructor() {
@@ -71,6 +76,19 @@ class Store {
         }
       } catch (mappingErr) {
         logger.warn({ mappingErr }, "Could not load lid_pn_mappings from settings");
+      }
+
+      // Try to load user credentials from disk to resolve "me" / self JID immediately
+      try {
+        const credsPath = path.join(process.cwd(), "data", "whatsapp", "auth", "creds.json");
+        if (fs.existsSync(credsPath)) {
+          const creds = JSON.parse(fs.readFileSync(credsPath, "utf-8"));
+          if (creds?.me) {
+            this.setUserJid(creds.me.id, creds.me.lid);
+          }
+        }
+      } catch {
+        // ignore
       }
 
       this.isInitialized = true;
@@ -203,6 +221,95 @@ class Store {
 
     // 6. Final fallback identifier
     return chatId.split("@")[0];
+  }
+
+  // ─── Identity & Quoted Sender Resolution ────────────────────
+
+  setUserJid(jid?: string, lid?: string): void {
+    if (jid) this.userJid = normalizeJid(jid);
+    if (lid) this.userLid = normalizeJid(lid);
+  }
+
+  getUserJid(): string | undefined {
+    return this.userJid;
+  }
+
+  getUserLid(): string | undefined {
+    return this.userLid;
+  }
+
+  isSelf(jid: string): boolean {
+    if (!jid) return false;
+    if (jid === "me") return true;
+    const normalized = normalizeJid(jid);
+    if (normalized === "me") return true;
+    if (this.userJid && (normalized === this.userJid || jid === this.userJid)) return true;
+    if (this.userLid && (normalized === this.userLid || jid === this.userLid)) return true;
+    return false;
+  }
+
+  /**
+   * Resolves the human-readable display name for the quoted message sender.
+   * Priority:
+   * 1. Self ("me" or matching userJid/userLid) -> "You"
+   * 2. Already resolved valid name (if passed and not raw JID)
+   * 3. In 1-on-1 chats, if not self -> resolved name of other person (chatId)
+   * 4. Address-book contact name (via direct JID or mapped PN)
+   * 5. Push name / verified business name
+   * 6. Formatted phone number
+   * 7. JID fallback
+   */
+  resolveQuotedSenderName(sender: string, chatId?: string, explicitSenderName?: string): string {
+    if (!sender) return "Unknown";
+
+    // 1. If self
+    if (this.isSelf(sender)) {
+      return "You";
+    }
+
+    // 2. If valid explicit senderName is already provided and isn't raw JID digits
+    if (
+      explicitSenderName &&
+      explicitSenderName.trim().length > 0 &&
+      explicitSenderName !== sender &&
+      explicitSenderName !== sender.split("@")[0]
+    ) {
+      return explicitSenderName.trim();
+    }
+
+    // 3. In a 1-on-1 chat, if sender isn't self, it's the other participant
+    if (chatId && !chatId.endsWith("@g.us")) {
+      const resolved = this.resolveChatName(chatId);
+      if (resolved && resolved !== chatId && resolved !== chatId.split("@")[0]) {
+        return resolved;
+      }
+    }
+
+    // 4. Resolve sender directly via resolveChatName (contacts, mapped PN, pushName, formatted phone)
+    const directResolved = this.resolveChatName(sender);
+    if (directResolved) {
+      return directResolved;
+    }
+
+    return sender.split("@")[0];
+  }
+
+  resolveMessageSenderName(senderId: string, pushName?: string): string {
+    if (!senderId) return "Unknown";
+    if (this.isSelf(senderId)) return "You";
+    if (senderId.endsWith("@g.us") || senderId === "unknown") {
+      return pushName || "Member";
+    }
+    return this.resolveChatName(senderId, pushName);
+  }
+
+  private formatQuotedMessage(quoted: unknown, chatId: string): QuotedMessage | undefined {
+    if (!quoted) return undefined;
+    const q = quoted as QuotedMessage;
+    return {
+      ...q,
+      senderName: this.resolveQuotedSenderName(q.sender, chatId, q.senderName),
+    };
   }
 
   // ─── Chats ────────────────────────────────────────────────
@@ -511,6 +618,23 @@ class Store {
       return;
     }
 
+    // Ensure quoted message senderName is populated using contact resolution
+    if (message.quotedMessage) {
+      message.quotedMessage.senderName = this.resolveQuotedSenderName(
+        message.quotedMessage.sender,
+        message.chatId,
+        message.quotedMessage.senderName
+      );
+    }
+
+    // Ensure message.senderName is populated using contact resolution
+    if (!message.senderName) {
+      message.senderName = this.resolveMessageSenderName(
+        message.senderId,
+        message.pushName
+      );
+    }
+
     try {
       // Ensure parent chat exists in database before inserting foreign-key message
       const chatExists = await prisma.chat.findUnique({
@@ -624,12 +748,13 @@ class Store {
           id: m.id,
           chatId: m.chatId,
           senderId: m.senderId,
+          senderName: this.resolveMessageSenderName(m.senderId, m.pushName || undefined),
           timestamp: Number(m.timestamp),
           type: m.type as MessageType,
           text: m.text || undefined,
           media: m.media as Message["media"],
           quotedMessageId: m.quotedMessageId || undefined,
-          quotedMessage: m.quotedMessage ? (m.quotedMessage as unknown as QuotedMessage) : undefined,
+          quotedMessage: this.formatQuotedMessage(m.quotedMessage, m.chatId),
           fromMe: m.fromMe,
           status: (m.status || "pending") as MessageStatus,
           pushName: m.pushName || undefined,
@@ -698,12 +823,13 @@ class Store {
             id: m.id,
             chatId: m.chatId,
             senderId: m.senderId,
+            senderName: this.resolveMessageSenderName(m.senderId, m.pushName || undefined),
             timestamp: Number(m.timestamp),
             type: m.type as MessageType,
             text: m.text || undefined,
             media: m.media as Message["media"],
             quotedMessageId: m.quotedMessageId || undefined,
-            quotedMessage: m.quotedMessage ? (m.quotedMessage as unknown as QuotedMessage) : undefined,
+            quotedMessage: this.formatQuotedMessage(m.quotedMessage, m.chatId),
             fromMe: m.fromMe,
             status: (m.status || "pending") as MessageStatus,
             pushName: m.pushName || undefined,
@@ -728,12 +854,13 @@ class Store {
         id: m.id,
         chatId: m.chatId,
         senderId: m.senderId,
+        senderName: this.resolveMessageSenderName(m.senderId, m.pushName || undefined),
         timestamp: Number(m.timestamp),
         type: m.type as MessageType,
         text: m.text || undefined,
         media: m.media as Message["media"],
         quotedMessageId: m.quotedMessageId || undefined,
-        quotedMessage: m.quotedMessage ? (m.quotedMessage as unknown as QuotedMessage) : undefined,
+        quotedMessage: this.formatQuotedMessage(m.quotedMessage, m.chatId),
         fromMe: m.fromMe,
         status: (m.status || "pending") as MessageStatus,
         pushName: m.pushName || undefined,
@@ -762,12 +889,13 @@ class Store {
         id: m.id,
         chatId: m.chatId,
         senderId: m.senderId,
+        senderName: this.resolveMessageSenderName(m.senderId, m.pushName || undefined),
         timestamp: Number(m.timestamp),
         type: m.type as MessageType,
         text: m.text || undefined,
         media: m.media as Message["media"],
         quotedMessageId: m.quotedMessageId || undefined,
-        quotedMessage: m.quotedMessage ? (m.quotedMessage as unknown as QuotedMessage) : undefined,
+        quotedMessage: this.formatQuotedMessage(m.quotedMessage, m.chatId),
         fromMe: m.fromMe,
         status: (m.status || "pending") as MessageStatus,
         pushName: m.pushName || undefined,

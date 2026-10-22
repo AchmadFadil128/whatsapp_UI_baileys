@@ -18,6 +18,8 @@ import {
 interface MessageBubbleProps {
   message: Message;
   showSender?: boolean;
+  chatName?: string;
+  resolveSenderName?: (senderJid: string) => string | undefined;
   onReply?: () => void;
   onQuotedClick?: (quotedMessageId: string) => void;
   onToggleStar?: () => void;
@@ -33,6 +35,8 @@ interface MessageBubbleProps {
 export default function MessageBubble({
   message,
   showSender = false,
+  chatName,
+  resolveSenderName,
   onReply,
   onQuotedClick,
   onToggleStar,
@@ -62,6 +66,92 @@ export default function MessageBubble({
       minute: "2-digit",
       hour12: false,
     });
+  }
+
+  function getQuotedSenderDisplay(): string {
+    if (!message.quotedMessage) return "";
+    const { sender, senderName } = message.quotedMessage;
+
+    // 1. If self
+    if (sender === "me" || senderName === "You") {
+      return "You";
+    }
+
+    // 2. If backend provided a resolved contact name or display name (that is not a raw JID)
+    if (
+      senderName &&
+      senderName.trim().length > 0 &&
+      senderName !== sender &&
+      senderName !== sender.split("@")[0] &&
+      !senderName.endsWith("@g.us")
+    ) {
+      return senderName.trim();
+    }
+
+    // 3. If parent provided a resolveSenderName function
+    if (resolveSenderName) {
+      const resolved = resolveSenderName(sender);
+      if (resolved && resolved !== sender && resolved !== sender.split("@")[0] && !resolved.endsWith("@g.us")) {
+        return resolved;
+      }
+    }
+
+    // 4. In a 1-on-1 chat, the other person is the chat contact (chatName)
+    if (!showSender && chatName && chatName.trim().length > 0) {
+      return chatName.trim();
+    }
+
+    // 5. Use senderName fallback if present
+    if (senderName && senderName.trim().length > 0 && !senderName.endsWith("@g.us")) {
+      return senderName.trim();
+    }
+
+    // 6. Fallback: user part of JID (guard against group JID)
+    if (!sender || sender.endsWith("@g.us") || sender === "unknown") {
+      return "Member";
+    }
+    const digits = sender.split("@")[0].split(":")[0];
+    if (/^\d{7,15}$/.test(digits)) {
+      return `+${digits}`;
+    }
+    return digits;
+  }
+
+  function getMessageSenderDisplay(): string {
+    // 1. If backend resolved a human-readable senderName
+    if (
+      message.senderName &&
+      message.senderName !== message.senderId &&
+      message.senderName !== message.senderId.split("@")[0] &&
+      !message.senderName.endsWith("@g.us")
+    ) {
+      return message.senderName;
+    }
+
+    // 2. If client-side resolver has a contact name
+    if (resolveSenderName && message.senderId && !message.senderId.endsWith("@g.us")) {
+      const resolved = resolveSenderName(message.senderId);
+      if (resolved && resolved !== message.senderId && !resolved.endsWith("@g.us")) {
+        return resolved;
+      }
+    }
+
+    // 3. Push name
+    if (message.pushName && message.pushName.trim().length > 0) {
+      return message.pushName.trim();
+    }
+
+    // 4. If sender is not a group JID, format or display sender digits
+    if (message.senderId && !message.senderId.endsWith("@g.us") && message.senderId !== "unknown") {
+      const digits = message.senderId.split("@")[0].split(":")[0];
+      if (/^\d{7,15}$/.test(digits)) {
+        return `+${digits}`;
+      }
+      return digits;
+    }
+
+    // 5. Safe fallback for group messages
+    return "Member";
   }
 
   function renderStatusIcon() {
@@ -260,8 +350,10 @@ export default function MessageBubble({
           </div>
         )}
         <div className={`message-bubble ${message.type === "text" ? "inline-footer" : ""}`}>
-          {showSender && !message.fromMe && message.pushName && (
-            <div className="message-sender">{message.pushName}</div>
+          {showSender && !message.fromMe && (
+            <div className="message-sender">
+              {getMessageSenderDisplay()}
+            </div>
           )}
           {message.quotedMessage && (
             <div
@@ -275,7 +367,7 @@ export default function MessageBubble({
               }}
               title="Jump to quoted message"
             >
-              <div className="message-quoted-sender">{message.quotedMessage.sender.split("@")[0]}</div>
+              <div className="message-quoted-sender">{getQuotedSenderDisplay()}</div>
               <div className="message-quoted-text">{message.quotedMessage.text || "Message"}</div>
             </div>
           )}

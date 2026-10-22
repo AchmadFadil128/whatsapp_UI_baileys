@@ -26,6 +26,7 @@ export interface Chat {
 export interface QuotedMessage {
   id: string;
   sender: string;
+  senderName?: string;
   text?: string;
 }
 
@@ -42,6 +43,7 @@ export interface Message {
   fromMe: boolean;
   status?: MessageStatus;
   pushName?: string;
+  senderName?: string;
   chatName?: string;
   isStarred?: boolean;
 }

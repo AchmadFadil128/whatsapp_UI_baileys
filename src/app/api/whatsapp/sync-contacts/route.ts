@@ -102,10 +102,42 @@ export async function POST(): Promise<
         return currentChatName.trim();
       }
       if (mappedPn) {
-        return mappedPn.split("@")[0];
+        return formatPhoneNumber(mappedPn);
+      }
+      if (chatId.endsWith("@s.whatsapp.net")) {
+        return formatPhoneNumber(chatId);
       }
       return chatId.split("@")[0];
     };
+
+    if (!currentStore.resolveQuotedSenderName) {
+      currentStore.resolveQuotedSenderName = function (
+        sender: string,
+        chatId?: string,
+        explicitSenderName?: string
+      ): string {
+        if (!sender) return "Unknown";
+        if (this.isSelf && this.isSelf(sender)) return "You";
+        if (sender === "me") return "You";
+        if (
+          explicitSenderName &&
+          explicitSenderName.trim().length > 0 &&
+          explicitSenderName !== sender &&
+          explicitSenderName !== sender.split("@")[0]
+        ) {
+          return explicitSenderName.trim();
+        }
+        if (chatId && !chatId.endsWith("@g.us")) {
+          const resolved = this.resolveChatName(chatId);
+          if (resolved && resolved !== chatId && resolved !== chatId.split("@")[0]) {
+            return resolved;
+          }
+        }
+        const directResolved = this.resolveChatName(sender);
+        if (directResolved) return directResolved;
+        return sender.split("@")[0];
+      };
+    }
 
     // 1. Resolve LIDs via Baileys socket for all address-book contacts
     let newlyMapped = 0;

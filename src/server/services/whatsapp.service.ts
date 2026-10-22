@@ -18,11 +18,13 @@ import makeWASocket, {
   type ConnectionState,
   type proto,
   type MinimalMessage,
+  type CacheStore,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import { EventEmitter } from "events";
 import path from "path";
 import fs from "fs";
+import NodeCache from "@cacheable/node-cache";
 import { createLogger } from "@/server/lib/logger";
 import { store } from "@/server/services/store";
 import {
@@ -30,6 +32,7 @@ import {
   normalizeJid,
   mapMessageStatus,
   unwrapMessage,
+  extractParticipant,
 } from "@/server/lib/message-transformer";
 import type {
   WhatsAppConnectionState,
@@ -50,6 +53,33 @@ const BROWSER_IDENTITY: [string, string, string] = [
 ];
 
 /**
+ * Adapter ensuring NodeCache fully satisfies Baileys' CacheStore generic contract.
+ */
+class NodeCacheAdapter implements CacheStore {
+  private cache: NodeCache<any>;
+
+  constructor(options?: { stdTTL?: number; useClones?: boolean }) {
+    this.cache = new NodeCache(options);
+  }
+
+  get<T>(key: string): T | undefined {
+    return this.cache.get(key) as T | undefined;
+  }
+
+  set<T>(key: string, value: T): void {
+    this.cache.set(key, value);
+  }
+
+  del(key: string): void {
+    this.cache.del(key);
+  }
+
+  flushAll(): void {
+    this.cache.flushAll?.();
+  }
+}
+
+/**
  * Centralized WhatsApp service — singleton that wraps Baileys.
  * All Baileys events flow through this service. Frontend never touches Baileys.
  *
@@ -67,6 +97,16 @@ class WhatsAppService extends EventEmitter {
   private rawMessages = new Map<string, WAMessage>();
 
   private currentPairingCode: string | null = null;
+
+  // Persistent caches across reconnects to prevent Bad MAC, retry loops, and Signal session desync
+  private msgRetryCounterCache = new NodeCacheAdapter({
+    stdTTL: 3600,
+    useClones: false,
+  });
+  private keyCache = new NodeCacheAdapter({
+    stdTTL: 300,
+    useClones: false,
+  });
 
   getConnectionState(): WhatsAppConnectionState {
     return this.connectionState;
@@ -94,13 +134,29 @@ class WhatsAppService extends EventEmitter {
   private async cleanupSocket(): Promise<void> {
     this.clearReconnectTimer();
     if (this.socket) {
+      const sock = this.socket;
+      this.socket = null;
       try {
-        this.socket.ev.removeAllListeners("connection.update");
-        this.socket.end(undefined);
+        sock.ev.removeAllListeners("connection.update");
+        sock.ev.removeAllListeners("creds.update");
+        sock.ev.removeAllListeners("messages.upsert");
+        sock.ev.removeAllListeners("messages.update");
+        sock.ev.removeAllListeners("chats.upsert");
+        sock.ev.removeAllListeners("chats.update");
+        sock.ev.removeAllListeners("chats.phoneNumberShare");
+        sock.ev.removeAllListeners("contacts.upsert");
+        sock.ev.removeAllListeners("contacts.update");
+        sock.ev.removeAllListeners("messaging-history.set");
+        sock.ev.removeAllListeners("presence.update");
+        try {
+          sock.ws?.close();
+        } catch {
+          // ignore
+        }
+        sock.end(undefined);
       } catch (err) {
         logger.error(err, "Error closing socket");
       }
-      this.socket = null;
     }
   }
 
@@ -135,6 +191,9 @@ class WhatsAppService extends EventEmitter {
 
     try {
       const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+      if (state.creds?.me) {
+        store.setUserJid(state.creds.me.id, state.creds.me.lid);
+      }
       const { version } = await fetchLatestBaileysVersion();
 
       logger.info({ version }, "Connecting to WhatsApp");
@@ -143,8 +202,9 @@ class WhatsAppService extends EventEmitter {
         version,
         auth: {
           creds: state.creds,
-          keys: makeCacheableSignalKeyStore(state.keys, logger),
+          keys: makeCacheableSignalKeyStore(state.keys, logger, this.keyCache),
         },
+        msgRetryCounterCache: this.msgRetryCounterCache,
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         syncFullHistory: true,
@@ -158,7 +218,60 @@ class WhatsAppService extends EventEmitter {
         getMessage: async (key) => {
           if (!key.id) return undefined;
           const raw = this.rawMessages.get(key.id);
-          return raw?.message ?? undefined;
+          if (raw?.message) {
+            return raw.message;
+          }
+
+          // Fallback to database store to fulfill retry requests from peer devices
+          try {
+            const chatId = normalizeJid(key.remoteJid);
+            const dbMsg = await store.getMessage(chatId, key.id);
+            if (dbMsg) {
+              if (dbMsg.type === "text" && dbMsg.text) {
+                return {
+                  conversation: dbMsg.text,
+                };
+              }
+              if (dbMsg.media) {
+                if (dbMsg.type === "image") {
+                  return {
+                    imageMessage: {
+                      caption: dbMsg.text || dbMsg.media.caption || "",
+                      mimetype: dbMsg.media.mimetype,
+                    },
+                  };
+                }
+                if (dbMsg.type === "video") {
+                  return {
+                    videoMessage: {
+                      caption: dbMsg.text || dbMsg.media.caption || "",
+                      mimetype: dbMsg.media.mimetype,
+                    },
+                  };
+                }
+                if (dbMsg.type === "audio") {
+                  return {
+                    audioMessage: {
+                      mimetype: dbMsg.media.mimetype,
+                    },
+                  };
+                }
+                if (dbMsg.type === "document") {
+                  return {
+                    documentMessage: {
+                      title: dbMsg.media.fileName,
+                      fileName: dbMsg.media.fileName,
+                      mimetype: dbMsg.media.mimetype,
+                    },
+                  };
+                }
+              }
+            }
+          } catch (err) {
+            logger.warn({ err, key }, "Failed to fetch message for getMessage callback");
+          }
+
+          return undefined;
         },
       });
 
@@ -170,7 +283,16 @@ class WhatsAppService extends EventEmitter {
       });
 
       // ─── Credential Updates ──────────────────────────────
-      sock.ev.on("creds.update", saveCreds);
+      sock.ev.on("creds.update", async () => {
+        try {
+          await saveCreds();
+        } catch (err) {
+          logger.error(err, "Failed to save credentials");
+        }
+        if (sock.user) {
+          store.setUserJid(sock.user.id, sock.user.lid);
+        }
+      });
 
       // ─── Message Events ──────────────────────────────────
       sock.ev.on("messages.upsert", (event: BaileysEventMap["messages.upsert"]) => {
@@ -334,17 +456,18 @@ class WhatsAppService extends EventEmitter {
     this.clearReconnectTimer();
     if (this.socket) {
       try {
-        this.socket.ev.removeAllListeners("connection.update");
         await this.socket.logout();
       } catch (error) {
         logger.error(error, "Error during logout");
       }
-      this.socket = null;
+      await this.cleanupSocket();
     }
     this.reconnectAttempts = 0;
     this.currentQrCode = null;
     this.currentPairingCode = null;
     this.clearAuthState();
+    this.msgRetryCounterCache.flushAll?.();
+    this.keyCache.flushAll?.();
     // Chat history is kept persistent — only auth state is cleared
     this.updateState("logged_out");
   }
@@ -1002,6 +1125,10 @@ class WhatsAppService extends EventEmitter {
       this.clearReconnectTimer();
       this.updateState("connected");
 
+      if (this.socket?.user) {
+        store.setUserJid(this.socket.user.id, this.socket.user.lid);
+      }
+
       // Default presence to unavailable (offline)
       this.setPresence("unavailable").catch((err) => {
         logger.warn(err, "Failed to set default presence to unavailable");
@@ -1025,9 +1152,35 @@ class WhatsAppService extends EventEmitter {
       this.currentPairingCode = null;
       this.clearReconnectTimer();
 
+      // Clean up the closed socket to detach listeners and prevent zombie socket
+      const oldSocket = this.socket;
+      this.socket = null;
+      if (oldSocket) {
+        try {
+          oldSocket.ev.removeAllListeners("connection.update");
+          oldSocket.ev.removeAllListeners("creds.update");
+          oldSocket.ev.removeAllListeners("messages.upsert");
+          oldSocket.ev.removeAllListeners("messages.update");
+          oldSocket.ev.removeAllListeners("chats.upsert");
+          oldSocket.ev.removeAllListeners("chats.update");
+          oldSocket.ev.removeAllListeners("chats.phoneNumberShare");
+          oldSocket.ev.removeAllListeners("contacts.upsert");
+          oldSocket.ev.removeAllListeners("contacts.update");
+          oldSocket.ev.removeAllListeners("messaging-history.set");
+          oldSocket.ev.removeAllListeners("presence.update");
+          try {
+            oldSocket.ws?.close();
+          } catch {
+            // ignore
+          }
+          oldSocket.end(undefined);
+        } catch (err) {
+          logger.error(err, "Error closing previous socket on close event");
+        }
+      }
+
       if (this.isExplicitDisconnect) {
         logger.info("WhatsApp socket closed intentionally, skipping reconnect");
-        this.socket = null;
         return;
       }
 
@@ -1037,14 +1190,15 @@ class WhatsAppService extends EventEmitter {
       if (statusCode === DisconnectReason.loggedOut) {
         logger.info("Logged out from WhatsApp");
         this.clearAuthState();
+        this.msgRetryCounterCache.flushAll?.();
+        this.keyCache.flushAll?.();
         this.updateState("logged_out");
-        this.socket = null;
         // Chat history is kept persistent — only auth state is cleared
         return;
       }
 
       const isRestartRequired = statusCode === DisconnectReason.restartRequired;
-      const isUnregistered = this.socket?.authState?.creds?.registered === false;
+      const isUnregistered = oldSocket?.authState?.creds?.registered === false;
       const maxRetries = isUnregistered ? 20 : MAX_RECONNECT_RETRIES;
 
       if (this.reconnectAttempts < maxRetries) {
@@ -1058,7 +1212,6 @@ class WhatsAppService extends EventEmitter {
           "Reconnecting to WhatsApp"
         );
         this.updateState("reconnecting");
-        this.socket = null;
 
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
@@ -1069,7 +1222,6 @@ class WhatsAppService extends EventEmitter {
       } else {
         logger.error("Max reconnect attempts reached");
         this.updateState("error", undefined, "Max reconnect attempts reached");
-        this.socket = null;
       }
     }
   }
@@ -1157,9 +1309,13 @@ class WhatsAppService extends EventEmitter {
       if (rawKeyAny?.senderLid && rawKeyAny?.senderPn) {
         store.registerLidPn(rawKeyAny.senderLid, rawKeyAny.senderPn);
       }
-      if (raw.pushName && raw.key?.remoteJid && !raw.key.remoteJid.endsWith("@g.us")) {
+      // Upsert contact pushName for message sender (supports 1-on-1 chats and group participants)
+      const isGroupChat = raw.key?.remoteJid?.endsWith("@g.us");
+      const participantJid = extractParticipant(raw);
+      const senderJid = isGroupChat ? participantJid : (raw.key?.participant || raw.key?.remoteJid);
+      if (raw.pushName && senderJid && !senderJid.endsWith("@g.us") && senderJid !== "status@broadcast") {
         store.upsertContact({
-          id: normalizeJid(raw.key.remoteJid),
+          id: normalizeJid(senderJid),
           pushName: raw.pushName.trim(),
         });
       }
@@ -1239,6 +1395,48 @@ class WhatsAppService extends EventEmitter {
         const status = mapMessageStatus(update.update.status);
         store.updateMessageStatus(chatId, messageId, status);
         this.emit("message:updated", { messageId, chatId, status });
+      }
+
+      // Handle re-decrypted or updated message payload
+      if (update.update?.message) {
+        let existingRaw = this.rawMessages.get(messageId);
+        if (existingRaw) {
+          existingRaw = {
+            ...existingRaw,
+            message: update.update.message,
+          };
+          this.rawMessages.set(messageId, existingRaw);
+        } else {
+          existingRaw = {
+            key: update.key,
+            message: update.update.message,
+            messageTimestamp: Math.floor(Date.now() / 1000),
+          } as WAMessage;
+          this.rawMessages.set(messageId, existingRaw);
+        }
+
+        const transformed = transformMessage(existingRaw);
+        if (transformed) {
+          const existingDbMsg = store.getMessage(chatId, messageId);
+          store.addMessage(transformed);
+          store.updateChatLastMessage(chatId, transformed, false);
+
+          if (!existingDbMsg) {
+            this.emit("message:received", { message: transformed });
+          } else {
+            this.emit("message:updated", {
+              messageId,
+              chatId,
+              status: transformed.status,
+              text: transformed.text,
+              media: transformed.media,
+            });
+          }
+          const chat = store.getChat(chatId);
+          if (chat) {
+            this.emit("chat:updated", { chat });
+          }
+        }
       }
     }
   }

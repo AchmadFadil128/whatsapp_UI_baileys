@@ -7,6 +7,7 @@ import { useChats } from "@/hooks/useChats";
 import { useMessages } from "@/hooks/useMessages";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useChatAliases } from "@/hooks/useChatAliases";
+import { useContacts } from "@/hooks/useContacts";
 import { useStatuses } from "@/hooks/useStatuses";
 import { useChannels } from "@/hooks/useChannels";
 import { getSocket } from "@/lib/socket";
@@ -65,6 +66,7 @@ export default function Home() {
   } = useMessages(activeChatId, targetMessage?.timestamp);
 
   const { aliases, setAlias } = useChatAliases();
+  const { contactsMap } = useContacts();
   const {
     statuses,
     isLoading: isLoadingStatuses,
@@ -381,6 +383,8 @@ export default function Home() {
         <ChatWindow
           chat={activeChat}
           messages={messages}
+          aliases={aliases}
+          contactsMap={contactsMap}
           isLoading={isLoadingMessages}
           hasMore={hasMore}
           highlightedMessageId={targetMessage?.id}

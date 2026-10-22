@@ -1,4 +1,4 @@
-import type { ApiResponse, Chat, Message, SendMessageRequest, SearchMessageResult } from "@/types";
+import type { ApiResponse, Chat, Message, Contact, SendMessageRequest, SearchMessageResult } from "@/types";
 
 const BASE_URL = "";
 
@@ -190,6 +190,10 @@ export async function deleteMessage(chatId: string, messageId: string) {
 export async function checkOnWhatsApp(phone: string) {
   const params = new URLSearchParams({ phone });
   return request<{ exists: boolean; jid: string }>(`/api/whatsapp/check-number?${params}`);
+}
+
+export async function getContacts() {
+  return request<Contact[]>("/api/contacts");
 }
 
 export async function getContactStatus(jid: string) {

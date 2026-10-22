@@ -18,6 +18,8 @@ import { getContactStatus } from "@/lib/api";
 interface ChatWindowProps {
   chat: Chat | null;
   messages: Message[];
+  aliases?: Record<string, string>;
+  contactsMap?: Record<string, string>;
   isLoading: boolean;
   hasMore: boolean;
   highlightedMessageId?: string | null;
@@ -38,6 +40,8 @@ interface ChatWindowProps {
 export default function ChatWindow({
   chat,
   messages,
+  aliases,
+  contactsMap,
   isLoading,
   hasMore,
   highlightedMessageId,
@@ -56,6 +60,64 @@ export default function ChatWindow({
   const [localHighlightedId, setLocalHighlightedId] = useState<string | null>(null);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const [contactStatus, setContactStatus] = useState<string | null>(null);
+
+  // Resolve human-readable participant/contact name
+  const resolveSenderName = useCallback(
+    (senderJid: string): string | undefined => {
+      if (!senderJid) return undefined;
+      if (senderJid === "me") return "You";
+
+      // 1. In a 1-on-1 chat, the other participant is the chat contact
+      if (!chat?.isGroup && chat?.name) {
+        return chat.name;
+      }
+
+      const cleanJid = senderJid.replace(/:(\d+)/, "");
+      const phoneDigits = senderJid.split("@")[0].split(":")[0];
+
+      // 2. Custom alias if set
+      if (aliases) {
+        if (aliases[senderJid]) return aliases[senderJid];
+        if (aliases[cleanJid]) return aliases[cleanJid];
+        if (aliases[phoneDigits]) return aliases[phoneDigits];
+      }
+
+      // 3. Saved contact name from contacts map (address book)
+      if (contactsMap) {
+        if (contactsMap[senderJid]) return contactsMap[senderJid];
+        if (contactsMap[cleanJid]) return contactsMap[cleanJid];
+        if (contactsMap[phoneDigits]) return contactsMap[phoneDigits];
+        if (contactsMap[`${phoneDigits}@s.whatsapp.net`]) return contactsMap[`${phoneDigits}@s.whatsapp.net`];
+      }
+
+      // 4. Search loaded messages for a resolved senderName from this participant
+      const found = messages.find(
+        (m) =>
+          (m.senderId === senderJid || m.senderId === cleanJid) &&
+          m.senderName &&
+          m.senderName !== senderJid &&
+          m.senderName !== cleanJid &&
+          m.senderName !== phoneDigits
+      );
+      if (found?.senderName) {
+        return found.senderName.trim();
+      }
+
+      // 5. Search loaded messages for a pushName
+      const pushFound = messages.find(
+        (m) =>
+          (m.senderId === senderJid || m.senderId === cleanJid) &&
+          m.pushName &&
+          m.pushName.trim().length > 0
+      );
+      if (pushFound?.pushName) {
+        return pushFound.pushName.trim();
+      }
+
+      return undefined;
+    },
+    [chat?.isGroup, chat?.name, aliases, contactsMap, messages]
+  );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -456,6 +518,8 @@ export default function ChatWindow({
               key={item.message.id}
               message={item.message}
               showSender={isGroup}
+              chatName={chat.name}
+              resolveSenderName={resolveSenderName}
               onReply={() => setReplyingTo(item.message)}
               onQuotedClick={handleQuotedClick}
               onToggleStar={onToggleStar ? () => onToggleStar(item.message.id) : undefined}
@@ -493,6 +557,19 @@ export default function ChatWindow({
           setReplyingTo(null);
         }}
         replyingTo={replyingTo}
+        replySenderName={
+          replyingTo
+            ? replyingTo.fromMe
+              ? "You"
+              : !chat.isGroup && chat.name
+              ? chat.name
+              : (replyingTo.senderName && !replyingTo.senderName.endsWith("@g.us")
+                  ? replyingTo.senderName
+                  : resolveSenderName(replyingTo.senderId) ||
+                    replyingTo.pushName ||
+                    (replyingTo.senderId.endsWith("@g.us") ? "Member" : replyingTo.senderId.split("@")[0]))
+            : undefined
+        }
         onCancelReply={() => setReplyingTo(null)}
       />
     </div>

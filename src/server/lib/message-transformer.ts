@@ -5,6 +5,7 @@ import {
   jidNormalizedUser,
   normalizeMessageContent,
   extractMessageContent,
+  WAMessageStubType,
 } from "@whiskeysockets/baileys";
 import type { Message, MessageType, MessageStatus, MediaReference, QuotedMessage } from "@/types";
 
@@ -13,10 +14,11 @@ import type { Message, MessageType, MessageStatus, MediaReference, QuotedMessage
  */
 export function normalizeJid(jid: string | null | undefined): string {
   if (!jid) return "";
+  if (jid === "me" || !jid.includes("@")) return jid;
   try {
     return jidNormalizedUser(jid);
   } catch {
-    return jid.replace(/:(\d+)/, "").replace("@s.whatsapp.net", "@s.whatsapp.net");
+    return jid.replace(/:(\d+)/, "");
   }
 }
 
@@ -173,15 +175,28 @@ function extractMedia(content: proto.IMessage | undefined): MediaReference | und
 }
 
 /**
+ * Helper to extract contextInfo across all supported message types.
+ */
+function extractContextInfo(content: proto.IMessage | undefined): proto.IContextInfo | undefined {
+  if (!content) return undefined;
+  const msg = content as Record<string, any>;
+  return (
+    content.extendedTextMessage?.contextInfo ||
+    content.imageMessage?.contextInfo ||
+    content.videoMessage?.contextInfo ||
+    content.audioMessage?.contextInfo ||
+    content.documentMessage?.contextInfo ||
+    content.ptvMessage?.contextInfo ||
+    content.stickerMessage?.contextInfo ||
+    msg.documentWithCaptionMessage?.message?.documentMessage?.contextInfo
+  );
+}
+
+/**
  * Extracts the quoted message ID if this message is a reply.
  */
 function extractQuotedMessageId(content: proto.IMessage | undefined): string | undefined {
-  const contextInfo =
-    content?.extendedTextMessage?.contextInfo ||
-    content?.imageMessage?.contextInfo ||
-    content?.videoMessage?.contextInfo ||
-    content?.documentMessage?.contextInfo;
-
+  const contextInfo = extractContextInfo(content);
   if (!contextInfo?.stanzaId) return undefined;
   return contextInfo.stanzaId;
 }
@@ -190,13 +205,9 @@ function extractQuotedMessageId(content: proto.IMessage | undefined): string | u
  * Extracts full quoted message data if available.
  */
 function extractQuotedMessage(content: proto.IMessage | undefined): QuotedMessage | undefined {
-  const contextInfo =
-    content?.extendedTextMessage?.contextInfo ||
-    content?.imageMessage?.contextInfo ||
-    content?.videoMessage?.contextInfo ||
-    content?.documentMessage?.contextInfo;
-
-  if (!contextInfo?.stanzaId || !contextInfo?.participant) return undefined;
+  const contextInfo = extractContextInfo(content);
+  const participant = contextInfo?.participant || contextInfo?.remoteJid;
+  if (!contextInfo?.stanzaId || !participant) return undefined;
 
   let text: string | undefined;
   if (contextInfo.quotedMessage) {
@@ -212,7 +223,7 @@ function extractQuotedMessage(content: proto.IMessage | undefined): QuotedMessag
 
   return {
     id: contextInfo.stanzaId,
-    sender: normalizeJid(contextInfo.participant),
+    sender: normalizeJid(participant),
     text,
   };
 }
@@ -237,12 +248,63 @@ export function mapMessageStatus(status: number | null | undefined): MessageStat
 }
 
 /**
+ * Extracts participant JID from WAMessage, checking top-level participant, key participant,
+ * and LID/PN variations. In group chats, never returns the group JID as participant.
+ */
+export function extractParticipant(raw: WAMessage): string | undefined {
+  const key = raw.key;
+  const rawAny = raw as any;
+  const keyAny = (key || {}) as any;
+
+  const candidate =
+    raw.participant ||
+    key?.participant ||
+    rawAny.participantLid ||
+    rawAny.participantPn ||
+    keyAny.participantLid ||
+    keyAny.participantPn ||
+    rawAny.author;
+
+  if (candidate) {
+    const normalized = normalizeJid(candidate);
+    if (normalized && !normalized.endsWith("@g.us")) {
+      return normalized;
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Transforms a raw Baileys WAMessage into the internal Message model.
  * Keeps all JID/format logic server-side per AGENTS.md §10.
  */
 export function transformMessage(raw: WAMessage): Message | null {
   const key: WAMessageKey | undefined | null = raw.key;
   if (!key?.id || !key.remoteJid) return null;
+
+  const chatId = normalizeJid(key.remoteJid);
+  const fromMe = key.fromMe ?? false;
+  const isGroup = chatId.endsWith("@g.us");
+  const participant = extractParticipant(raw);
+  const senderId = fromMe
+    ? "me"
+    : (participant || (isGroup ? "unknown" : chatId));
+
+  // Support ciphertext stub messages (waiting for decryption retry)
+  if (raw.messageStubType === WAMessageStubType.CIPHERTEXT) {
+    return {
+      id: key.id,
+      chatId,
+      senderId,
+      timestamp: Number(raw.messageTimestamp) || Math.floor(Date.now() / 1000),
+      type: "text",
+      text: "Waiting for this message. This may take a while.",
+      fromMe,
+      status: "pending",
+      pushName: raw.pushName || undefined,
+    };
+  }
 
   // Filter out unsupported messageStubType events (e.g. group changes, call events, system stubs)
   if (raw.messageStubType) {
@@ -266,11 +328,6 @@ export function transformMessage(raw: WAMessage): Message | null {
     return null;
   }
 
-  const chatId = normalizeJid(key.remoteJid);
-  const fromMe = key.fromMe ?? false;
-  const senderId = fromMe
-    ? "me"
-    : normalizeJid(key.participant || key.remoteJid);
 
   return {
     id: key.id,
