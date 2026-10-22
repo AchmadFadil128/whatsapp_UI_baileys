@@ -16,6 +16,7 @@ import ChatSidebar from "@/components/ChatSidebar";
 import ChatWindow from "@/components/ChatWindow";
 import StatusView from "@/components/StatusView";
 import NotificationToastContainer from "@/components/NotificationToast";
+import SecuritySettingsModal from "@/components/SecuritySettingsModal";
 import { EyeIcon, EyeOffIcon } from "@/components/Icons";
 
 /**
@@ -42,6 +43,7 @@ export default function Home() {
   const { chats, markRead } = useChats();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"chats" | "status" | "channels">("chats");
+  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
   const [targetMessage, setTargetMessage] = useState<{ id: string; timestamp?: number } | null>(null);
   const [focusTrigger, setFocusTrigger] = useState(0);
   const { messages, isLoading: isLoadingMessages, hasMore, loadMore, appendMessage } =
@@ -267,17 +269,24 @@ export default function Home() {
 
   if (showQRScreen) {
     return (
-      <QRScreen
-        connectionState={connectionState}
-        qrCode={qrCode}
-        pairingCode={pairingCode}
-        error={error}
-        isLoading={isConnecting}
-        isPairingLoading={isPairingLoading}
-        onConnect={connect}
-        onRetry={connect}
-        onRequestPairingCode={requestPairingCode}
-      />
+      <>
+        <QRScreen
+          connectionState={connectionState}
+          qrCode={qrCode}
+          pairingCode={pairingCode}
+          error={error}
+          isLoading={isConnecting}
+          isPairingLoading={isPairingLoading}
+          onConnect={connect}
+          onRetry={connect}
+          onRequestPairingCode={requestPairingCode}
+          onOpenSecuritySettings={() => setIsSecurityModalOpen(true)}
+        />
+        <SecuritySettingsModal
+          isOpen={isSecurityModalOpen}
+          onClose={() => setIsSecurityModalOpen(false)}
+        />
+      </>
     );
   }
 
@@ -338,6 +347,7 @@ export default function Home() {
           const chat = aliasedChats.find(c => c.id === id);
           if (chat) api.muteChat(id, !chat.isMuted);
         }}
+        onOpenSecuritySettings={() => setIsSecurityModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -367,6 +377,12 @@ export default function Home() {
           onRename={(newName) => activeChatId && setAlias(activeChatId, newName)}
         />
       )}
+
+      {/* Security & 2FA Modal */}
+      <SecuritySettingsModal
+        isOpen={isSecurityModalOpen}
+        onClose={() => setIsSecurityModalOpen(false)}
+      />
     </div>
   );
 }

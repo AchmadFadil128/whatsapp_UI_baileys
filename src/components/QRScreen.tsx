@@ -14,6 +14,7 @@ interface QRScreenProps {
   onConnect: () => void;
   onRetry: () => void;
   onRequestPairingCode?: (phoneNumber: string) => Promise<string | void>;
+  onOpenSecuritySettings?: () => void;
 }
 
 /**
@@ -32,6 +33,7 @@ export default function QRScreen({
   onConnect,
   onRetry,
   onRequestPairingCode,
+  onOpenSecuritySettings,
 }: QRScreenProps) {
   const [authMode, setAuthMode] = useState<"qr" | "pairing">("qr");
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -118,14 +120,30 @@ export default function QRScreen({
   return (
     <div className="qr-screen">
       <div className="qr-card">
-        {/* Logo */}
-        <div className="qr-logo">
-          <div className="qr-logo-icon">
-            <ChatsIcon size={26} />
+        {/* Header with Logo and Security Settings */}
+        <div className="qr-card-header">
+          <div className="qr-logo">
+            <div className="qr-logo-icon">
+              <ChatsIcon size={26} />
+            </div>
+            <div className="qr-logo-text">
+              <span>WhatsApp</span> Web
+            </div>
           </div>
-          <div className="qr-logo-text">
-            <span>WhatsApp</span> Web
-          </div>
+          {onOpenSecuritySettings && (
+            <button
+              type="button"
+              className="qr-security-btn"
+              onClick={onOpenSecuritySettings}
+              title="Account & Security (2FA)"
+              aria-label="Account & Security"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+              <span>Security</span>
+            </button>
+          )}
         </div>
 
         {/* Auth Mode Switcher */}

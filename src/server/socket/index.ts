@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from "socket.io";
 import type { Server as HTTPServer } from "http";
 import { createLogger } from "@/server/lib/logger";
 import { whatsappService } from "@/server/services/whatsapp.service";
+import { auth } from "@/lib/auth";
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
@@ -34,6 +35,32 @@ export function initSocketServer(
       pingInterval: 25000,
     }
   );
+
+  // ─── Socket.IO Authentication Middleware ────────────────────
+  io.use(async (socket, next) => {
+    try {
+      const cookieHeader = socket.request.headers.cookie;
+      if (!cookieHeader) {
+        logger.warn({ socketId: socket.id }, "Unauthorized socket connection (no cookies)");
+        return next(new Error("Unauthorized: No session"));
+      }
+
+      const headers = new Headers();
+      headers.set("cookie", cookieHeader);
+
+      const session = await auth.api.getSession({ headers });
+      if (!session) {
+        logger.warn({ socketId: socket.id }, "Unauthorized socket connection (invalid or expired session)");
+        return next(new Error("Unauthorized: Invalid session"));
+      }
+
+      logger.debug({ socketId: socket.id, userId: session.user.id }, "Socket authenticated successfully");
+      return next();
+    } catch (err) {
+      logger.error(err, "Socket auth validation error");
+      return next(new Error("Authentication failed"));
+    }
+  });
 
   // ─── Client Connection ──────────────────────────────────────
   io.on("connection", (socket) => {

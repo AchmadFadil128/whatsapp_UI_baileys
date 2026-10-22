@@ -45,6 +45,7 @@ interface ChatSidebarProps {
   onToggleMute?: (chatId: string) => void;
   privacyBlur?: boolean;
   onTogglePrivacyBlur?: () => void;
+  onOpenSecuritySettings?: () => void;
 }
 
 type ChatFilter = "all" | "unread" | "groups";
@@ -83,6 +84,7 @@ export default function ChatSidebar({
   onToggleMute,
   privacyBlur = false,
   onTogglePrivacyBlur,
+  onOpenSecuritySettings,
 }: ChatSidebarProps) {
   const [search, setSearch] = useState("");
   const [menuAnchor, setMenuAnchor] = useState<"header" | "rail" | null>(null);
@@ -337,6 +339,17 @@ export default function ChatSidebar({
             }}
           >
             Enable desktop alerts
+          </button>
+        )}
+        {onOpenSecuritySettings && (
+          <button
+            className="dropdown-item"
+            onClick={() => {
+              setMenuAnchor(null);
+              onOpenSecuritySettings();
+            }}
+          >
+            Security & 2FA Settings
           </button>
         )}
         <div className="dropdown-divider" />

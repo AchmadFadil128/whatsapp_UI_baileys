@@ -75,13 +75,22 @@ Next.js Frontend (Browser)
   - Notifikasi hanya berbunyi untuk pesan masuk obrolan penting.
   - Notifikasi suara dinonaktifkan untuk status update, broadcast, reaksi, dan pesan saluran agar tidak bising.
 
+### 7. 🔐 Autentikasi Pengguna & Two-Factor Authentication (Better Auth + TOTP 2FA)
+- **Autentikasi Aplikasi Terpisah**: Mengikuti prinsip arsitektur keamanan, autentikasi pengguna web app terpisah sepenuhnya dari sesi WhatsApp di server.
+- **Dukungan 2FA Berbasis TOTP**: Kompatibel dengan aplikasi authenticator populer (Google Authenticator, Microsoft Authenticator, Authy, 1Password, dll.).
+- **Enrollment Cepat via QR Code**: Menampilkan kode QR instan dan kunci rahasia teks manual untuk kemudahan pemindaian di aplikasi authenticator.
+- **Emergency Backup Codes**: Kode cadangan darurat otomatis dibuat untuk memulihkan akun jika perangkat authenticator tidak tersedia.
+- **Trust This Device**: Opsi mempercayai perangkat browser selama 30 hari.
+- **Proteksi Rute & Realtime**: Middleware Next.js dan middleware otentikasi Socket.IO memvalidasi sesi aktif secara kriptografis.
+
 ---
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: Next.js 15+ (App Router), React 19, TypeScript, Tailwind CSS / Vanilla CSS, Lucide Icons.
+- **Frontend**: Next.js 16+ (App Router), React 19, TypeScript, Vanilla CSS, Lucide Icons.
 - **Backend**: Node.js, Next.js Custom Server (`server.ts` via `tsx`), `@whiskeysockets/baileys`.
-- **Realtime**: Socket.IO (Server & Client).
+- **Authentication**: [Better Auth](https://better-auth.com/) + `@better-auth/prisma-adapter` + Plugin 2FA (TOTP & Backup Codes).
+- **Realtime**: Socket.IO (Server & Client) dengan otentikasi sesi.
 - **Database & ORM**: PostgreSQL & Prisma ORM.
 - **Containerization**: Docker & Docker Compose.
 

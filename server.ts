@@ -4,6 +4,7 @@ import { initSocketServer } from "./src/server/socket/index.js";
 import { whatsappService } from "./src/server/services/whatsapp.service.js";
 import { createLogger } from "./src/server/lib/logger.js";
 import { migrateJsonStoreIfNeeded } from "./src/server/db/migrate-json.js";
+import { ensureAdminUser } from "./src/server/db/seed-user.js";
 
 const logger = createLogger("server");
 
@@ -15,6 +16,11 @@ const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 app.prepare().then(async () => {
+  // Ensure the single admin user from .env is seeded / synchronized in PostgreSQL
+  await ensureAdminUser().catch((err) => {
+    logger.error(err, "Error ensuring single admin user");
+  });
+
   // Automatically migrate legacy JSON store data to PostgreSQL if DB is empty
   await migrateJsonStoreIfNeeded().catch((err) => {
     logger.error(err, "Error checking JSON store migration");
