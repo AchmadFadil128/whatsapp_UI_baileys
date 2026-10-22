@@ -1,3 +1,10 @@
+import net from "node:net";
+if (typeof (net as any).setDefaultAutoSelectFamily === "function") {
+  (net as any).setDefaultAutoSelectFamily(false);
+}
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
+
 import { createServer } from "http";
 import next from "next";
 import { initSocketServer } from "./src/server/socket/index.js";

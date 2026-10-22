@@ -103,14 +103,34 @@ export function useMessages(chatId: string | null, targetTimestamp?: number | nu
       }
     }
 
+    function onHistorySynced() {
+      if (!chatId) return;
+      api
+        .getMessages(chatId, 50)
+        .then((res) => {
+          if (res.success && res.data) {
+            setMessages((prev) => {
+              if (prev.length === 0) return res.data || [];
+              const existingIds = new Set(prev.map((m) => m.id));
+              const newMsgs = (res.data || []).filter((m) => !existingIds.has(m.id));
+              if (newMsgs.length === 0) return prev;
+              return [...newMsgs, ...prev].sort((a, b) => a.timestamp - b.timestamp);
+            });
+          }
+        })
+        .catch(() => {});
+    }
+
     socket.on("message:received", onMessageReceived);
     socket.on("message:updated", onMessageUpdated);
     socket.on("message:deleted", onMessageDeleted);
+    socket.on("history:synced", onHistorySynced);
 
     return () => {
       socket.off("message:received", onMessageReceived);
       socket.off("message:updated", onMessageUpdated);
       socket.off("message:deleted", onMessageDeleted);
+      socket.off("history:synced", onHistorySynced);
     };
   }, [chatId]);
 

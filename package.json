@@ -5,13 +5,14 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "next build",
-    "start": "NODE_ENV=production tsx server.ts"
+    "start": "NODE_ENV=production tsx server.ts",
+    "test": "tsx --test src/__tests__/**/*.test.ts"
   },
   "dependencies": {
     "@better-auth/prisma-adapter": "^1.7.12",
     "@hapi/boom": "^10.0.1",
     "@prisma/client": "^6.19.3",
-    "@whiskeysockets/baileys": "^6.7.16",
+    "@whiskeysockets/baileys": "^6.7.24",
     "better-auth": "^1.7.12",
     "next": "^16.3.5",
     "pino": "^9.6.0",

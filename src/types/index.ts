@@ -83,7 +83,9 @@ export interface Contact {
   id: string;
   name?: string;
   pushName?: string;
+  verifiedName?: string;
   phone?: string;
+  lid?: string;
   profilePicUrl?: string;
 }
 
@@ -125,6 +127,7 @@ export interface ServerToClientEvents {
   "chat:updated": (data: ChatUpdateEvent) => void;
   "chat:deleted": (data: { chatId: string }) => void;
   "typing:updated": (data: TypingEvent) => void;
+  "history:synced": (data: { count: number; syncType?: string }) => void;
 }
 
 export interface ClientToServerEvents {

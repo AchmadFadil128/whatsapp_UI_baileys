@@ -1,6 +1,7 @@
 import { prisma } from "@/server/db/client";
 import type { Chat, Message, Contact, MessageStatus, MessageType, QuotedMessage, SearchMessageResult } from "@/types";
 import { createLogger } from "@/server/lib/logger";
+import { resolveContactDisplayName, formatPhoneNumber } from "@/server/lib/contact-resolver";
 
 const logger = createLogger("store");
 
@@ -12,6 +13,9 @@ const logger = createLogger("store");
 class Store {
   private chats: Map<string, Chat> = new Map();
   private contacts: Map<string, Contact> = new Map();
+  private lidToPn: Map<string, string> = new Map();
+  private pnToLid: Map<string, string> = new Map();
+  private pendingMappingSave: NodeJS.Timeout | null = null;
   private isInitialized = false;
 
   constructor() {
@@ -21,7 +25,7 @@ class Store {
   }
 
   /**
-   * Loads initial state (chats & contacts) from PostgreSQL into memory cache.
+   * Loads initial state (chats, contacts, and LID mappings) from PostgreSQL into memory cache.
    */
   async init(): Promise<void> {
     try {
@@ -47,18 +51,158 @@ class Store {
           id: c.id,
           name: c.name || undefined,
           pushName: c.pushName || undefined,
+          verifiedName: c.verifiedName || undefined,
           profilePicUrl: c.profilePicUrl || undefined,
         });
       }
 
+      // Load persistent LID <-> PN mappings from settings table
+      try {
+        const mappingSetting = await prisma.setting.findUnique({
+          where: { key: "lid_pn_mappings" },
+        });
+        if (mappingSetting?.value && typeof mappingSetting.value === "object") {
+          for (const [lid, pn] of Object.entries(mappingSetting.value as Record<string, string>)) {
+            if (typeof lid === "string" && typeof pn === "string") {
+              this.lidToPn.set(lid, pn);
+              this.pnToLid.set(pn, lid);
+            }
+          }
+        }
+      } catch (mappingErr) {
+        logger.warn({ mappingErr }, "Could not load lid_pn_mappings from settings");
+      }
+
       this.isInitialized = true;
       logger.info(
-        { chats: this.chats.size, contacts: this.contacts.size },
+        { chats: this.chats.size, contacts: this.contacts.size, lidMappings: this.lidToPn.size },
         "Loaded store from PostgreSQL"
       );
     } catch (err) {
       logger.error(err, "Error loading store from PostgreSQL");
     }
+  }
+
+  // ─── LID <-> PN Mapping ───────────────────────────────────
+
+  registerLidPn(rawLid: string, rawPn: string): void {
+    if (!rawLid || !rawPn) return;
+    let lid = rawLid.trim();
+    let pn = rawPn.trim();
+    if (lid.endsWith("@s.whatsapp.net") && pn.endsWith("@lid")) {
+      const tmp = lid;
+      lid = pn;
+      pn = tmp;
+    }
+    if (!lid.endsWith("@lid") || !pn.endsWith("@s.whatsapp.net")) {
+      return;
+    }
+
+    if (this.lidToPn.get(lid) === pn && this.pnToLid.get(pn) === lid) {
+      return;
+    }
+
+    this.lidToPn.set(lid, pn);
+    this.pnToLid.set(pn, lid);
+
+    // Debounced persist to prisma.setting
+    if (this.pendingMappingSave) {
+      clearTimeout(this.pendingMappingSave);
+    }
+    this.pendingMappingSave = setTimeout(async () => {
+      try {
+        const obj: Record<string, string> = {};
+        for (const [l, p] of this.lidToPn) {
+          obj[l] = p;
+        }
+        await prisma.setting.upsert({
+          where: { key: "lid_pn_mappings" },
+          create: { key: "lid_pn_mappings", value: obj },
+          update: { value: obj },
+        });
+        logger.info({ mappedCount: this.lidToPn.size }, "Persisted LID-to-PN mappings to DB");
+      } catch (err) {
+        logger.error({ err }, "Failed to persist LID-to-PN mappings");
+      }
+    }, 1000);
+  }
+
+  getPnForLid(lid: string): string | undefined {
+    return this.lidToPn.get(lid);
+  }
+
+  getLidForPn(pn: string): string | undefined {
+    return this.pnToLid.get(pn);
+  }
+
+  getAllLidMappings(): Record<string, string> {
+    return Object.fromEntries(this.lidToPn);
+  }
+
+  /**
+   * Resolves a chat display name following:
+   * 1. Address book contact name
+   * 2. Mapped phone contact name (for LID chats)
+   * 3. Push name (direct or mapped)
+   * 4. Verified business name
+   * 5. Current non-JID chat name (e.g. Copilot, ChatGPT, etc.)
+   * 6. Formatted phone number (for mapped LID or PN)
+   * 7. Fallback identifier
+   */
+  resolveChatName(chatId: string, currentChatName?: string): string {
+    if (chatId.endsWith("@g.us")) {
+      return currentChatName || chatId.split("@")[0];
+    }
+
+    // 1. Direct contact name
+    const direct = this.contacts.get(chatId);
+    if (direct?.name && direct.name.trim().length > 0) {
+      return direct.name.trim();
+    }
+
+    // 2. Mapped PN contact name (for @lid chats)
+    const mappedPn = this.lidToPn.get(chatId);
+    if (mappedPn) {
+      const pnContact = this.contacts.get(mappedPn);
+      if (pnContact?.name && pnContact.name.trim().length > 0) {
+        return pnContact.name.trim();
+      }
+      if (pnContact?.pushName && pnContact.pushName.trim().length > 0) {
+        return pnContact.pushName.trim();
+      }
+      if (pnContact?.verifiedName && pnContact.verifiedName.trim().length > 0) {
+        return pnContact.verifiedName.trim();
+      }
+    }
+
+    // 3. Direct contact push name or verified business name
+    if (direct?.pushName && direct.pushName.trim().length > 0) {
+      return direct.pushName.trim();
+    }
+    if (direct?.verifiedName && direct.verifiedName.trim().length > 0) {
+      return direct.verifiedName.trim();
+    }
+
+    // 4. Current chat name if it's not raw identifier digits
+    if (
+      currentChatName &&
+      currentChatName.trim().length > 0 &&
+      currentChatName !== chatId &&
+      currentChatName !== chatId.split("@")[0]
+    ) {
+      return currentChatName.trim();
+    }
+
+    // 5. Formatted phone number
+    if (mappedPn) {
+      return formatPhoneNumber(mappedPn);
+    }
+    if (chatId.endsWith("@s.whatsapp.net")) {
+      return formatPhoneNumber(chatId);
+    }
+
+    // 6. Final fallback identifier
+    return chatId.split("@")[0];
   }
 
   // ─── Chats ────────────────────────────────────────────────
@@ -101,20 +245,29 @@ class Store {
   }
 
   getChat(chatId: string): Chat | undefined {
-    return this.chats.get(chatId);
+    const chat = this.chats.get(chatId);
+    if (!chat) return undefined;
+    return {
+      ...chat,
+      name: this.resolveChatName(chat.id, chat.name),
+    };
   }
 
   getChats(): Chat[] {
     return Array.from(this.chats.values())
-      .map((c) => ({
-        ...c,
-        lastMessage:
-          c.lastMessage?.startsWith("[Event:") ||
-          c.lastMessage === "Unsupported message" ||
-          c.lastMessage === "[unknown]"
-            ? ""
-            : c.lastMessage,
-      }))
+      .map((c) => {
+        const resolvedName = this.resolveChatName(c.id, c.name);
+        return {
+          ...c,
+          name: resolvedName,
+          lastMessage:
+            c.lastMessage?.startsWith("[Event:") ||
+            c.lastMessage === "Unsupported message" ||
+            c.lastMessage === "[unknown]"
+              ? ""
+              : c.lastMessage,
+        };
+      })
       .sort((a, b) => {
         if (a.isPinned && !b.isPinned) return -1;
         if (!a.isPinned && b.isPinned) return 1;
@@ -127,30 +280,37 @@ class Store {
       const dbChats = await prisma.chat.findMany({
         orderBy: [{ isPinned: "desc" }, { lastMessageTimestamp: "desc" }],
       });
-      return dbChats.map((c) => ({
-        id: c.id,
-        name: c.name,
-        lastMessage:
-          c.lastMessage?.startsWith("[Event:") ||
-          c.lastMessage === "Unsupported message" ||
-          c.lastMessage === "[unknown]"
-            ? ""
-            : c.lastMessage || "",
-        lastMessageTimestamp: Number(c.lastMessageTimestamp),
-        unreadCount: c.unreadCount,
-        isGroup: c.isGroup,
-        isArchived: c.isArchived,
-        isMuted: c.isMuted,
-        isPinned: c.isPinned,
-        profilePicUrl: c.profilePicUrl || undefined,
-      }));
+      return dbChats.map((c) => {
+        const resolvedName = this.resolveChatName(c.id, c.name);
+        return {
+          id: c.id,
+          name: resolvedName,
+          lastMessage:
+            c.lastMessage?.startsWith("[Event:") ||
+            c.lastMessage === "Unsupported message" ||
+            c.lastMessage === "[unknown]"
+              ? ""
+              : c.lastMessage || "",
+          lastMessageTimestamp: Number(c.lastMessageTimestamp),
+          unreadCount: c.unreadCount,
+          isGroup: c.isGroup,
+          isArchived: c.isArchived,
+          isMuted: c.isMuted,
+          isPinned: c.isPinned,
+          profilePicUrl: c.profilePicUrl || undefined,
+        };
+      });
     } catch (err) {
       logger.error(err, "Failed to query chats from database, fallback to cache");
       return this.getChats();
     }
   }
 
-  async updateChatLastMessage(chatId: string, message: Message): Promise<void> {
+  async updateChatLastMessage(
+    chatId: string,
+    message: Message,
+    isNewIncoming = false
+  ): Promise<void> {
     if (
       message.type === "unknown" ||
       message.type === "reaction" ||
@@ -167,43 +327,70 @@ class Store {
     let unreadCount = 0;
 
     if (chat) {
-      chat.lastMessage = lastMessageText;
-      chat.lastMessageTimestamp = lastTimestamp;
-      if (!message.fromMe) {
+      const isNewer =
+        !chat.lastMessageTimestamp || lastTimestamp >= chat.lastMessageTimestamp;
+      if (isNewer) {
+        chat.lastMessage = lastMessageText;
+        chat.lastMessageTimestamp = lastTimestamp;
+      }
+      if (isNewIncoming && !message.fromMe) {
         chat.unreadCount = (chat.unreadCount || 0) + 1;
       }
       unreadCount = chat.unreadCount;
+
+      try {
+        await prisma.chat.update({
+          where: { id: chatId },
+          data: {
+            ...(isNewer
+              ? {
+                  lastMessage: lastMessageText,
+                  lastMessageTimestamp: BigInt(lastTimestamp),
+                }
+              : {}),
+            unreadCount,
+          },
+        });
+      } catch (err) {
+        logger.error({ err, chatId }, "Failed to update chat last message in database");
+      }
     } else {
-      unreadCount = message.fromMe ? 0 : 1;
+      unreadCount = isNewIncoming && !message.fromMe ? 1 : 0;
+      const contact = this.contacts.get(chatId);
+      const initialName =
+        resolveContactDisplayName(contact, chatId) ||
+        message.pushName ||
+        chatId.split("@")[0];
+
       this.chats.set(chatId, {
         id: chatId,
-        name: message.pushName || chatId.split("@")[0],
+        name: initialName,
         lastMessage: lastMessageText,
         lastMessageTimestamp: lastTimestamp,
         unreadCount,
         isGroup: chatId.endsWith("@g.us"),
       });
-    }
 
-    try {
-      await prisma.chat.upsert({
-        where: { id: chatId },
-        create: {
-          id: chatId,
-          name: message.pushName || chatId.split("@")[0],
-          lastMessage: lastMessageText,
-          lastMessageTimestamp: BigInt(lastTimestamp),
-          unreadCount,
-          isGroup: chatId.endsWith("@g.us"),
-        },
-        update: {
-          lastMessage: lastMessageText,
-          lastMessageTimestamp: BigInt(lastTimestamp),
-          unreadCount,
-        },
-      });
-    } catch (err) {
-      logger.error({ err, chatId }, "Failed to update chat last message in database");
+      try {
+        await prisma.chat.upsert({
+          where: { id: chatId },
+          create: {
+            id: chatId,
+            name: initialName,
+            lastMessage: lastMessageText,
+            lastMessageTimestamp: BigInt(lastTimestamp),
+            unreadCount,
+            isGroup: chatId.endsWith("@g.us"),
+          },
+          update: {
+            lastMessage: lastMessageText,
+            lastMessageTimestamp: BigInt(lastTimestamp),
+            unreadCount,
+          },
+        });
+      } catch (err) {
+        logger.error({ err, chatId }, "Failed to update chat last message in database");
+      }
     }
   }
 
@@ -502,13 +689,10 @@ class Store {
         )
         .map((m) => {
           const cachedChat = this.chats.get(m.chatId);
-          const contactName = this.getContactName(m.chatId);
-          const chatName =
-            cachedChat?.name ||
-            m.chat?.name ||
-            contactName ||
-            m.pushName ||
-            m.chatId.split("@")[0];
+          const chatName = this.resolveChatName(
+            m.chatId,
+            cachedChat?.name || m.chat?.name
+          );
 
           return {
             id: m.id,
@@ -721,30 +905,92 @@ class Store {
 
   // ─── Contacts ─────────────────────────────────────────────
 
-  async upsertContact(contact: Contact): Promise<void> {
+  async upsertContact(contact: Partial<Contact> & { id: string }): Promise<void> {
     const existing = this.contacts.get(contact.id);
-    this.contacts.set(contact.id, existing ? { ...existing, ...contact } : contact);
+    const name = contact.name?.trim() ? contact.name.trim() : existing?.name;
+    const pushName = contact.pushName?.trim() ? contact.pushName.trim() : existing?.pushName;
+    const verifiedName = contact.verifiedName?.trim() ? contact.verifiedName.trim() : existing?.verifiedName;
+    const profilePicUrl = contact.profilePicUrl !== undefined ? contact.profilePicUrl : existing?.profilePicUrl;
+
+    const merged: Contact = {
+      id: contact.id,
+      name,
+      pushName,
+      verifiedName,
+      profilePicUrl,
+    };
+    this.contacts.set(contact.id, merged);
 
     try {
       await prisma.contact.upsert({
         where: { id: contact.id },
         create: {
-          id: contact.id,
-          name: contact.name || null,
-          pushName: contact.pushName || null,
+          id: merged.id,
+          name: merged.name || null,
+          pushName: merged.pushName || null,
+          verifiedName: merged.verifiedName || null,
+          profilePicUrl: merged.profilePicUrl || null,
         },
         update: {
-          name: contact.name || null,
-          pushName: contact.pushName || null,
+          ...(name ? { name } : {}),
+          ...(pushName ? { pushName } : {}),
+          ...(verifiedName ? { verifiedName } : {}),
+          ...(profilePicUrl !== undefined ? { profilePicUrl } : {}),
         },
       });
+
+      // If contact includes LID mapping, register it
+      if (contact.lid && contact.id.endsWith("@s.whatsapp.net")) {
+        this.registerLidPn(contact.lid, contact.id);
+      } else if (contact.phone && contact.id.endsWith("@lid")) {
+        this.registerLidPn(contact.id, contact.phone);
+      }
+
+      // If this contact corresponds to a 1-on-1 chat, update chat name in cache & DB if needed
+      const targetChatIds = [contact.id];
+      const mappedLid = this.pnToLid.get(contact.id);
+      if (mappedLid) targetChatIds.push(mappedLid);
+      const mappedPn = this.lidToPn.get(contact.id);
+      if (mappedPn) targetChatIds.push(mappedPn);
+
+      for (const targetId of targetChatIds) {
+        const chat = this.chats.get(targetId);
+        if (chat && !chat.isGroup) {
+          const resolvedName = this.resolveChatName(chat.id, chat.name);
+          if (resolvedName && chat.name !== resolvedName && resolvedName !== chat.id.split("@")[0]) {
+            chat.name = resolvedName;
+            await prisma.chat.updateMany({
+              where: { id: chat.id },
+              data: { name: resolvedName },
+            });
+          }
+        }
+      }
     } catch (err) {
       logger.error({ err, contactId: contact.id }, "Failed to upsert contact to database");
     }
   }
 
   getContact(contactId: string): Contact | undefined {
-    return this.contacts.get(contactId);
+    const direct = this.contacts.get(contactId);
+    if (contactId.endsWith("@lid")) {
+      const mappedPn = this.lidToPn.get(contactId);
+      if (mappedPn) {
+        const pnContact = this.contacts.get(mappedPn);
+        if (pnContact) {
+          return {
+            ...pnContact,
+            id: contactId,
+            lid: contactId,
+            phone: mappedPn,
+            name: pnContact.name || direct?.name,
+            pushName: direct?.pushName || pnContact.pushName,
+            verifiedName: direct?.verifiedName || pnContact.verifiedName,
+          };
+        }
+      }
+    }
+    return direct;
   }
 
   getContacts(): Contact[] {
@@ -752,35 +998,28 @@ class Store {
   }
 
   getContactName(jid: string): string | undefined {
-    const contact = this.contacts.get(jid);
-    return contact?.name || contact?.pushName;
+    const resolved = this.resolveChatName(jid);
+    return resolved !== jid.split("@")[0] ? resolved : undefined;
   }
 
   /**
-   * Synchronizes chat names from the contacts table.
-   * Updates chat names that are currently just JID-based with proper contact names.
+   * Synchronizes chat names from the contacts table and LID mappings.
+   * Updates non-group chat names with proper contact names.
    */
-  async syncChatNamesFromContacts(): Promise<void> {
+  async syncChatNamesFromContacts(): Promise<number> {
     let synced = 0;
     for (const [chatId, chat] of this.chats) {
-      const contactName = this.getContactName(chatId);
-      if (!contactName) continue;
+      if (chat.isGroup) continue;
 
-      // Only update if current name looks like a JID (no spaces, contains digits)
-      const currentName = chat.name;
-      const looksLikeJid =
-        !currentName ||
-        /^\d+$/.test(currentName) ||
-        currentName.includes("@");
-
-      if (looksLikeJid) {
-        chat.name = contactName;
+      const resolved = this.resolveChatName(chatId, chat.name);
+      if (resolved && chat.name !== resolved && resolved !== chatId.split("@")[0]) {
+        chat.name = resolved;
         this.chats.set(chatId, chat);
 
         try {
           await prisma.chat.updateMany({
             where: { id: chatId },
-            data: { name: contactName },
+            data: { name: resolved },
           });
           synced++;
         } catch (err) {
@@ -789,8 +1028,9 @@ class Store {
       }
     }
     if (synced > 0) {
-      logger.info({ synced }, "Synced chat names from contacts");
+      logger.info({ synced }, "Synced chat names from contacts and LID mappings");
     }
+    return synced;
   }
 
   // ─── Media Storage ────────────────────────────────────────

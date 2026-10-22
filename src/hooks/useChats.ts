@@ -52,14 +52,19 @@ export function useChats() {
       setChats((prev) => prev.filter((c) => c.id !== data.chatId));
     }
 
-    // Refetch chats when connection updates (e.g., after history sync)
+    // Refetch chats when connection updates or history sync completes
     function onConnectionUpdate() {
+      fetchChats();
+    }
+
+    function onHistorySynced() {
       fetchChats();
     }
 
     socket.on("chat:updated", onChatUpdated);
     socket.on("chat:deleted", onChatDeleted);
     socket.on("whatsapp:connection", onConnectionUpdate);
+    socket.on("history:synced", onHistorySynced);
 
     fetchChats();
 
@@ -67,6 +72,7 @@ export function useChats() {
       socket.off("chat:updated", onChatUpdated);
       socket.off("chat:deleted", onChatDeleted);
       socket.off("whatsapp:connection", onConnectionUpdate);
+      socket.off("history:synced", onHistorySynced);
     };
   }, [fetchChats]);
 

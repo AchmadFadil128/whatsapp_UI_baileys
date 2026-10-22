@@ -132,8 +132,8 @@ export function initSocketServer(
     io?.emit("typing:updated", data);
   });
 
-  whatsappService.on("history:synced", () => {
-    // After history sync, tell clients to refresh their chat list
+  whatsappService.on("history:synced", (data: { count: number; syncType?: string }) => {
+    io?.emit("history:synced", data);
     io?.emit("whatsapp:connection", {
       state: whatsappService.getConnectionState(),
     });

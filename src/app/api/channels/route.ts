@@ -3,9 +3,10 @@ import { store } from "@/server/services/store";
 import type { ApiResponse, Chat } from "@/types";
 
 export async function GET(): Promise<NextResponse<ApiResponse<Chat[]>>> {
-  const allChats = await store.getChatsFromDb();
+  const currentStore = (globalThis as any).__whatsappStore || store;
+  const allChats = await currentStore.getChatsFromDb();
   // Filter out ONLY newsletters
-  const channels = allChats.filter((c) => c.id.endsWith("@newsletter"));
+  const channels = allChats.filter((c: Chat) => c.id.endsWith("@newsletter"));
   
   return NextResponse.json({
     success: true,

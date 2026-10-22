@@ -1,9 +1,17 @@
+import net from "node:net";
+if (typeof (net as any).setDefaultAutoSelectFamily === "function") {
+  (net as any).setDefaultAutoSelectFamily(false);
+}
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
+
 import makeWASocket, {
   useMultiFileAuthState,
   makeCacheableSignalKeyStore,
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
+  Browsers,
   type WASocket,
   type WAMessage,
   type BaileysEventMap,
@@ -100,7 +108,7 @@ class WhatsAppService extends EventEmitter {
    * Initializes the Baileys socket and connects to WhatsApp.
    * Persists auth state to filesystem (data/whatsapp/auth/).
    */
-  async connect(): Promise<void> {
+  async connect(isRetry = false): Promise<void> {
     if (this.isConnected() && this.socket) {
       logger.info("Already connected to WhatsApp, skipping duplicate connect");
       return;
@@ -114,6 +122,9 @@ class WhatsAppService extends EventEmitter {
     this.clearReconnectTimer();
     this.isExplicitDisconnect = false;
     this.isConnecting = true;
+    if (!isRetry) {
+      this.reconnectAttempts = 0;
+    }
 
     if (this.socket) {
       logger.warn("Stale socket exists, disconnecting first");
@@ -134,9 +145,10 @@ class WhatsAppService extends EventEmitter {
           creds: state.creds,
           keys: makeCacheableSignalKeyStore(state.keys, logger),
         },
-        browser: BROWSER_IDENTITY,
+        browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
-        syncFullHistory: false,
+        syncFullHistory: true,
+        shouldSyncHistoryMessage: () => true,
         markOnlineOnConnect: false,
         fireInitQueries: false,
         defaultQueryTimeoutMs: 120000,
@@ -176,6 +188,16 @@ class WhatsAppService extends EventEmitter {
 
       sock.ev.on("chats.update", (updates: BaileysEventMap["chats.update"]) => {
         this.handleChatsUpdate(updates);
+      });
+
+      sock.ev.on("chats.phoneNumberShare", ({ lid, jid }: { lid: string; jid: string }) => {
+        if (lid && jid) {
+          store.registerLidPn(lid, jid);
+          store.syncChatNamesFromContacts().then(() => {
+            const chat = store.getChat(normalizeJid(lid));
+            if (chat) this.emit("chat:updated", { chat });
+          }).catch(() => {});
+        }
       });
 
       // ─── Contact Events ──────────────────────────────────
@@ -791,11 +813,18 @@ class WhatsAppService extends EventEmitter {
     if (!this.socket || !this.isConnected()) return null;
 
     try {
-      const targetJid = jid.includes("@") ? jid : `${jid}@s.whatsapp.net`;
+      const normalized = jid.includes("@") ? jid : `${jid}@s.whatsapp.net`;
+      const targetJid = normalized.endsWith("@lid")
+        ? (store.getPnForLid(normalized) || normalized)
+        : normalized;
+
       // Calling sock.profilePictureUrl(targetJid) without 'image' retrieves the low-res preview
       const url = await this.socket.profilePictureUrl(targetJid);
       if (url) {
         await store.updateChatProfilePicUrl(jid, url);
+        if (targetJid !== jid) {
+          await store.updateChatProfilePicUrl(targetJid, url);
+        }
       }
       return url || null;
     } catch {
@@ -811,7 +840,11 @@ class WhatsAppService extends EventEmitter {
     if (!this.socket || !this.isConnected()) return null;
 
     try {
-      const targetJid = jid.includes("@") ? jid : `${jid}@s.whatsapp.net`;
+      const normalized = jid.includes("@") ? jid : `${jid}@s.whatsapp.net`;
+      const targetJid = normalized.endsWith("@lid")
+        ? (store.getPnForLid(normalized) || normalized)
+        : normalized;
+
       const result = await this.socket.fetchStatus(targetJid);
       if (Array.isArray(result) && result.length > 0) {
         const item = result[0] as any;
@@ -853,7 +886,7 @@ class WhatsAppService extends EventEmitter {
    */
   async checkOnWhatsApp(
     jidOrNumber: string
-  ): Promise<{ exists: boolean; jid: string } | null> {
+  ): Promise<{ exists: boolean; jid: string; lid?: string } | null> {
     if (!this.socket || !this.isConnected()) {
       throw new Error("WhatsApp is not connected");
     }
@@ -866,7 +899,7 @@ class WhatsAppService extends EventEmitter {
       const results = await this.socket.onWhatsApp(jid);
       const first = results?.[0];
       if (!first) return null;
-      return { exists: Boolean(first.exists), jid: first.jid };
+      return { exists: Boolean(first.exists), jid: first.jid, lid: (first as any).lid || undefined };
     } catch (error) {
       logger.error({ error, jidOrNumber }, "Failed to check if JID exists on WhatsApp");
       return null;
@@ -978,6 +1011,11 @@ class WhatsAppService extends EventEmitter {
       store.syncChatNamesFromContacts().catch((err) => {
         logger.error(err, "Failed to sync chat names from contacts");
       });
+
+      // Automatically synchronize contact LIDs and resolve chat names in the background
+      this.syncContactLids().catch((err) => {
+        logger.error(err, "Failed to synchronize contact LIDs");
+      });
       return;
     }
 
@@ -1006,15 +1044,17 @@ class WhatsAppService extends EventEmitter {
       }
 
       const isRestartRequired = statusCode === DisconnectReason.restartRequired;
+      const isUnregistered = this.socket?.authState?.creds?.registered === false;
+      const maxRetries = isUnregistered ? 20 : MAX_RECONNECT_RETRIES;
 
-      if (this.reconnectAttempts < MAX_RECONNECT_RETRIES) {
+      if (this.reconnectAttempts < maxRetries) {
         this.reconnectAttempts++;
-        const delay = isRestartRequired
-          ? 1000
+        const delay = isRestartRequired || isUnregistered
+          ? 1500
           : Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
 
         logger.info(
-          { attempt: this.reconnectAttempts, delay, statusCode },
+          { attempt: this.reconnectAttempts, delay, statusCode, isUnregistered },
           "Reconnecting to WhatsApp"
         );
         this.updateState("reconnecting");
@@ -1022,7 +1062,7 @@ class WhatsAppService extends EventEmitter {
 
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
-          this.connect().catch((err) => {
+          this.connect(true).catch((err) => {
             logger.error(err, "Reconnect attempt failed");
           });
         }, delay);
@@ -1032,6 +1072,72 @@ class WhatsAppService extends EventEmitter {
         this.socket = null;
       }
     }
+  }
+
+  /**
+   * Automatically resolves and synchronizes LIDs for all saved address book contacts
+   * using Baileys onWhatsApp USync queries in small throttled batches.
+   */
+  async syncContactLids(): Promise<number> {
+    if (!this.socket || !this.isConnected()) {
+      logger.warn("Cannot sync contact LIDs: socket is not connected");
+      return 0;
+    }
+
+    const contacts = store.getContacts();
+    // Only resolve contacts that have a saved phone number (@s.whatsapp.net) and a name
+    const pnContacts = contacts.filter(
+      (c) => c.id.endsWith("@s.whatsapp.net") && c.name && c.name.trim().length > 0
+    );
+
+    // Filter to those that don't already have an LID mapping
+    const toResolve = pnContacts.filter((c) => !store.getLidForPn(c.id));
+
+    logger.info(
+      { totalPnContacts: pnContacts.length, toResolveCount: toResolve.length },
+      "Starting contact LID synchronization"
+    );
+
+    if (toResolve.length === 0) {
+      const synced = await store.syncChatNamesFromContacts();
+      return synced;
+    }
+
+    let newlyMapped = 0;
+    const BATCH_SIZE = 25;
+
+    for (let i = 0; i < toResolve.length; i += BATCH_SIZE) {
+      if (!this.socket || !this.isConnected()) {
+        logger.warn("Stopping contact LID sync: socket disconnected");
+        break;
+      }
+
+      const batch = toResolve.slice(i, i + BATCH_SIZE);
+      const jids = batch.map((c) => c.id);
+
+      try {
+        const results = await this.socket.onWhatsApp(...jids);
+        if (results && results.length > 0) {
+          for (const res of results) {
+            if (res.exists && res.lid) {
+              const lid = normalizeJid(String(res.lid));
+              const pn = normalizeJid(res.jid);
+              store.registerLidPn(lid, pn);
+              newlyMapped++;
+            }
+          }
+        }
+      } catch (batchErr) {
+        logger.warn({ batchErr, batchIndex: i }, "Error during onWhatsApp batch query");
+      }
+
+      // Small throttle between batches so we don't saturate WhatsApp rate limits
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+
+    logger.info({ newlyMapped }, "Completed contact LID synchronization");
+    const synced = await store.syncChatNamesFromContacts();
+    return synced;
   }
 
   private handleMessagesUpsert(event: BaileysEventMap["messages.upsert"]): void {
@@ -1045,6 +1151,18 @@ class WhatsAppService extends EventEmitter {
       const isStatusBroadcast = raw.key?.remoteJid === "status@broadcast";
       const isNewsletter = raw.key?.remoteJid?.endsWith("@newsletter") ?? false;
       const isReaction = !!raw.message?.reactionMessage;
+
+      // Extract sender PN / LID mappings if present on message key
+      const rawKeyAny = raw.key as any;
+      if (rawKeyAny?.senderLid && rawKeyAny?.senderPn) {
+        store.registerLidPn(rawKeyAny.senderLid, rawKeyAny.senderPn);
+      }
+      if (raw.pushName && raw.key?.remoteJid && !raw.key.remoteJid.endsWith("@g.us")) {
+        store.upsertContact({
+          id: normalizeJid(raw.key.remoteJid),
+          pushName: raw.pushName.trim(),
+        });
+      }
 
       // ─── Reactions: don't store as messages, don't update chat ───
       if (isReaction) {
@@ -1095,7 +1213,7 @@ class WhatsAppService extends EventEmitter {
 
       // ─── Regular chat messages ───
       store.addMessage(message);
-      store.updateChatLastMessage(message.chatId, message);
+      store.updateChatLastMessage(message.chatId, message, type === "notify");
 
       // Only emit realtime events for new incoming messages
       if (type === "notify") {
@@ -1130,9 +1248,20 @@ class WhatsAppService extends EventEmitter {
       const chatId = normalizeJid(raw.id);
       // Skip status broadcast — not a real chat
       if (chatId === "status@broadcast") continue;
+
+      const rawAny = raw as any;
+      if (rawAny.pnJid) {
+        store.registerLidPn(chatId, rawAny.pnJid);
+      }
+      if (rawAny.lidJid) {
+        store.registerLidPn(rawAny.lidJid, chatId);
+      }
+
+      const chatName = raw.name || rawAny.displayName || store.getContactName(chatId) || chatId.split("@")[0];
+
       const chat: Chat = {
         id: chatId,
-        name: raw.name || store.getContactName(chatId) || chatId.split("@")[0],
+        name: chatName,
         lastMessage: "",
         lastMessageTimestamp: Number(raw.conversationTimestamp) || 0,
         unreadCount: raw.unreadCount || 0,
@@ -1162,9 +1291,19 @@ class WhatsAppService extends EventEmitter {
       const chatId = normalizeJid(update.id);
       // Skip status broadcast — not a real chat
       if (chatId === "status@broadcast") continue;
+
+      const rawAny = update as any;
+      if (rawAny.pnJid) {
+        store.registerLidPn(chatId, rawAny.pnJid);
+      }
+      if (rawAny.lidJid) {
+        store.registerLidPn(rawAny.lidJid, chatId);
+      }
+
       const existing = store.getChat(chatId);
       if (existing) {
         if (update.name) existing.name = update.name;
+        else if (rawAny.displayName) existing.name = rawAny.displayName;
         if (update.unreadCount !== undefined && update.unreadCount !== null) {
           existing.unreadCount = update.unreadCount;
         }
@@ -1192,17 +1331,27 @@ class WhatsAppService extends EventEmitter {
   ): void {
     for (const raw of contacts) {
       const contactId = normalizeJid(raw.id);
+      const rawAny = raw as any;
+      if (rawAny.lid && rawAny.jid) {
+        store.registerLidPn(rawAny.lid, rawAny.jid);
+      } else if (raw.id.endsWith("@lid") && rawAny.jid) {
+        store.registerLidPn(raw.id, rawAny.jid);
+      } else if (raw.id.endsWith("@s.whatsapp.net") && rawAny.lid) {
+        store.registerLidPn(rawAny.lid, raw.id);
+      }
+
       store.upsertContact({
         id: contactId,
-        name: raw.name || undefined,
-        pushName: raw.notify || undefined,
+        name: raw.name?.trim() || undefined,
+        pushName: raw.notify?.trim() || undefined,
+        verifiedName: raw.verifiedName?.trim() || undefined,
+        lid: rawAny.lid ? normalizeJid(rawAny.lid) : undefined,
+        phone: rawAny.jid ? normalizeJid(rawAny.jid) : undefined,
       });
 
       // Update chat name if we now know the contact name
       const chat = store.getChat(contactId);
-      if (chat && (raw.name || raw.notify)) {
-        chat.name = raw.name || raw.notify || chat.name;
-        store.upsertChat(chat);
+      if (chat) {
         this.emit("chat:updated", { chat });
       }
     }
@@ -1214,49 +1363,94 @@ class WhatsAppService extends EventEmitter {
     for (const update of updates) {
       if (!update.id) continue;
       const contactId = normalizeJid(update.id);
-      const existing = store.getContact(contactId);
-      if (existing) {
-        if (update.name) existing.name = update.name;
-        if (update.notify) existing.pushName = update.notify;
-        store.upsertContact(existing);
+      const rawAny = update as any;
+      if (rawAny.lid && rawAny.jid) {
+        store.registerLidPn(rawAny.lid, rawAny.jid);
+      } else if (update.id.endsWith("@lid") && rawAny.jid) {
+        store.registerLidPn(update.id, rawAny.jid);
+      } else if (update.id.endsWith("@s.whatsapp.net") && rawAny.lid) {
+        store.registerLidPn(rawAny.lid, update.id);
+      }
+
+      store.upsertContact({
+        id: contactId,
+        name: update.name?.trim() || undefined,
+        pushName: update.notify?.trim() || undefined,
+        verifiedName: update.verifiedName?.trim() || undefined,
+        lid: rawAny.lid ? normalizeJid(rawAny.lid) : undefined,
+        phone: rawAny.jid ? normalizeJid(rawAny.jid) : undefined,
+      });
+
+      const chat = store.getChat(contactId);
+      if (chat) {
+        this.emit("chat:updated", { chat });
       }
     }
   }
 
-  private handleHistorySync(
+  private async handleHistorySync(
     data: BaileysEventMap["messaging-history.set"]
-  ): void {
-    const { chats, contacts, messages: syncMessages } = data;
+  ): Promise<void> {
+    const { chats, contacts, messages: syncMessages, syncType, progress, isLatest } = data;
 
     logger.info(
       {
+        syncType,
+        progress,
+        isLatest,
         chats: chats?.length || 0,
         contacts: contacts?.length || 0,
         messages: syncMessages?.length || 0,
       },
-      "Processing history sync"
+      "Processing history sync batch"
     );
 
-    // Process contacts
-    if (contacts) {
+    // 1. Process contacts
+    if (contacts && contacts.length > 0) {
       for (const raw of contacts) {
+        if (!raw.id) continue;
         const contactId = normalizeJid(raw.id);
-        store.upsertContact({
+        const rawAny = raw as any;
+        if (rawAny.lid && rawAny.jid) {
+          store.registerLidPn(rawAny.lid, rawAny.jid);
+        } else if (raw.id.endsWith("@lid") && rawAny.jid) {
+          store.registerLidPn(raw.id, rawAny.jid);
+        } else if (raw.id.endsWith("@s.whatsapp.net") && rawAny.lid) {
+          store.registerLidPn(rawAny.lid, raw.id);
+        }
+
+        await store.upsertContact({
           id: contactId,
-          name: raw.name || undefined,
-          pushName: raw.notify || undefined,
+          name: raw.name?.trim() || undefined,
+          pushName: raw.notify?.trim() || undefined,
+          verifiedName: raw.verifiedName?.trim() || undefined,
+          lid: rawAny.lid ? normalizeJid(rawAny.lid) : undefined,
+          phone: rawAny.jid ? normalizeJid(rawAny.jid) : undefined,
         });
       }
     }
 
-    // Process chats
-    if (chats) {
+    // 2. Process chats
+    if (chats && chats.length > 0) {
       for (const raw of chats) {
+        if (!raw.id) continue;
         const chatId = normalizeJid(raw.id);
+        if (chatId === STATUS_BROADCAST_JID) continue;
+
+        const rawAny = raw as any;
+        if (rawAny.pnJid) {
+          store.registerLidPn(chatId, rawAny.pnJid);
+        }
+        if (rawAny.lidJid) {
+          store.registerLidPn(rawAny.lidJid, chatId);
+        }
+
         const contactName = store.getContactName(chatId);
-        store.upsertChat({
+        const chatName = raw.name || rawAny.displayName || contactName || chatId.split("@")[0];
+
+        await store.upsertChat({
           id: chatId,
-          name: raw.name || contactName || chatId.split("@")[0],
+          name: chatName,
           lastMessage: "",
           lastMessageTimestamp: Number(raw.conversationTimestamp) || 0,
           unreadCount: raw.unreadCount || 0,
@@ -1265,13 +1459,14 @@ class WhatsAppService extends EventEmitter {
           isPinned: Boolean(raw.pinned),
           isMuted: Boolean((raw as any).mute || (raw as any).muteEndTime),
         });
-        // Opportunistically queue low-res avatar fetch
+        // Opportunistically queue low-res avatar fetch in background
         this.getProfilePictureUrl(chatId).catch(() => {});
       }
     }
 
-    // Process messages
-    if (syncMessages) {
+    // 3. Process messages
+    let processedMessages = 0;
+    if (syncMessages && syncMessages.length > 0) {
       for (const raw of syncMessages) {
         if (raw.key?.id && raw.message) {
           this.rawMessages.set(raw.key.id, raw);
@@ -1287,13 +1482,31 @@ class WhatsAppService extends EventEmitter {
           continue;
         }
 
-        store.addMessage(message);
-        store.updateChatLastMessage(message.chatId, message);
+        await store.addMessage(message);
+        // For history sync, isNewIncoming is false (does not increment unreadCount)
+        await store.updateChatLastMessage(message.chatId, message, false);
+        processedMessages++;
       }
     }
 
-    // Emit full chat list update after sync
-    this.emit("history:synced");
+    // 4. Synchronize chat names from contacts
+    await store.syncChatNamesFromContacts();
+
+    logger.info(
+      {
+        chatsProcessed: chats?.length || 0,
+        contactsProcessed: contacts?.length || 0,
+        messagesProcessed: processedMessages,
+        syncType,
+      },
+      "History sync batch persisted successfully"
+    );
+
+    // Emit history:synced event after successful database persistence
+    this.emit("history:synced", {
+      count: processedMessages,
+      syncType: syncType ? String(syncType) : undefined,
+    });
   }
 
   private handlePresenceUpdate(
