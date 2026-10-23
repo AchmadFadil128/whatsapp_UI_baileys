@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@whiskeysockets/baileys", "pino", "pino-pretty"],
   allowedDevOrigins: ["127.0.0.1"],
+  experimental: {
+    agentUpgrade: "security",
+  },
 };
 
 export default nextConfig;
