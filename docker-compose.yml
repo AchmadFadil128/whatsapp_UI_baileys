@@ -1,6 +1,6 @@
 services:
   app:
-    build: .
+    image: ramdhanistars/whatsappui:1.0.0
     ports:
       - "3321:3000"
     env_file:

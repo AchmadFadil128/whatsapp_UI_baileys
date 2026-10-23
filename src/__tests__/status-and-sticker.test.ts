@@ -16,7 +16,7 @@ describe("Sticker Message Handling", () => {
           url: "https://mmg.whatsapp.net/...",
           mimetype: "image/webp",
           fileSha256: Buffer.from("mock-sha256"),
-          fileLength: BigInt(24500),
+          fileLength: 24500,
           isAnimated: false,
         },
       },
