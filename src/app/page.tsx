@@ -69,15 +69,23 @@ export default function Home() {
   const { aliases, setAlias } = useChatAliases();
   const { contactsMap, fetchContacts } = useContacts();
   const {
-    statuses,
-    isLoading: isLoadingStatuses,
+    senderList: statusSenders,
+    selectedSenderId: selectedStatusSenderId,
+    senderStatuses,
+    isLoadingList: isLoadingStatusList,
+    isLoadingSender: isLoadingStatusSender,
     isLoadingMore: isLoadingMoreStatuses,
     hasMore: hasMoreStatuses,
+    fetchSenderStatuses,
     loadMore: loadMoreStatuses,
+    clearSelection: clearStatusSelection,
     deleteStatus,
     deleteStatusesBySender,
-    clearAllStatuses,
   } = useStatuses();
+
+  const selectedStatusSender = statusSenders.find(
+    (s) => s.senderId === selectedStatusSenderId
+  );
   const { channels } = useChannels();
 
   // Default state: "unavailable" (offline) and false (disabled blue ticks)
@@ -403,19 +411,25 @@ export default function Home() {
           if (activeChatId === id) setActiveChatId(null);
         }}
         onOpenSecuritySettings={() => setIsSecurityModalOpen(true)}
+        statusSenders={statusSenders}
+        selectedStatusSenderId={selectedStatusSenderId}
+        onSelectStatusSender={fetchSenderStatuses}
+        isLoadingStatusList={isLoadingStatusList}
       />
 
       {/* Main Content Area */}
       {activeTab === "status" ? (
         <StatusView
-          statuses={statuses}
-          isLoading={isLoadingStatuses}
+          selectedSenderId={selectedStatusSenderId}
+          selectedSenderName={selectedStatusSender?.senderName}
+          statuses={senderStatuses}
+          isLoading={isLoadingStatusSender}
           isLoadingMore={isLoadingMoreStatuses}
           hasMore={hasMoreStatuses}
           onLoadMore={loadMoreStatuses}
           onDeleteStatus={deleteStatus}
           onDeleteSenderStatuses={deleteStatusesBySender}
-          onClearAll={clearAllStatuses}
+          onClearSelection={clearStatusSelection}
         />
       ) : (
         <ChatWindow

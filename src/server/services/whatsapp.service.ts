@@ -1371,6 +1371,13 @@ class WhatsAppService extends EventEmitter {
       store.addMessage(message);
       store.updateChatLastMessage(message.chatId, message, type === "notify");
 
+      // Preemptively cache sticker media so it survives restarts
+      if (message.type === "sticker") {
+        this.downloadMedia(message.id).catch((err) => {
+          logger.warn({ err, messageId: message.id }, "Failed to pre-cache sticker media");
+        });
+      }
+
       // Only emit realtime events for new incoming messages
       if (type === "notify") {
         this.emit("message:received", { message });

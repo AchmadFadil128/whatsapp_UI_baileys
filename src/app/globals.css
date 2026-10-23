@@ -1323,6 +1323,75 @@ button {
   font-size: 0.875rem;
 }
 
+/* ─── Sticker Styles ────────────────────────────────── */
+
+.sticker-bubble {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.sticker-bubble .message-footer {
+  background: var(--bg-bubble-out);
+  border-radius: 8px;
+  padding: 2px 6px;
+  margin-top: 2px;
+  width: fit-content;
+  margin-left: auto;
+}
+
+.message-row.received .sticker-bubble .message-footer {
+  background: var(--bg-bubble-in);
+  margin-left: 0;
+}
+
+.message-sticker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-width: 120px;
+  min-height: 120px;
+}
+
+.sticker-image {
+  display: block;
+  max-width: 200px;
+  max-height: 200px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  transition: opacity 0.25s ease;
+}
+
+.sticker-image.loading {
+  opacity: 0;
+  position: absolute;
+  pointer-events: none;
+}
+
+.sticker-image.loaded {
+  opacity: 1;
+  position: relative;
+}
+
+.sticker-placeholder {
+  width: 140px;
+  height: 140px;
+  background: rgba(11, 20, 26, 0.12);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.sticker-error span:first-child {
+  font-size: 2.2rem;
+}
+
 .audio-message {
   display: flex;
   align-items: center;
@@ -2819,6 +2888,23 @@ video.status-detail-media {
 .status-load-more-btn:disabled {
   opacity: 0.7;
   cursor: progress;
+}
+
+/* ─── Status Sidebar Avatar ────────────────────────────────── */
+.status-avatar-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.status-avatar-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-primary, #00a884);
+  pointer-events: none;
 }
 
 .search-input:focus {

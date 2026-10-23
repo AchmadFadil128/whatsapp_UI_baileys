@@ -213,6 +213,8 @@ export async function getBusinessProfile(jid: string) {
 
 // ─── Statuses ─────────────────────────────────────────────────
 
+import type { StatusSenderSummary } from "@/hooks/useStatuses";
+
 export async function deleteStatus(id: string) {
   return request(`/api/statuses/${encodeURIComponent(id)}`, {
     method: "DELETE",
@@ -233,3 +235,28 @@ export async function deleteStatusesBySender(senderId: string) {
     method: "DELETE",
   });
 }
+
+/**
+ * Fetches a lightweight list of status senders (grouped).
+ * Returns senderId, senderName, statusCount, and latestTimestamp per sender.
+ */
+export async function getStatusSenderList() {
+  return request<StatusSenderSummary[]>("/api/statuses/senders");
+}
+
+/**
+ * Fetches all statuses for a specific sender (lazy loading).
+ */
+export async function getStatusesBySender(
+  senderId: string,
+  limit = 50,
+  before?: number
+) {
+  const params = new URLSearchParams({
+    senderId,
+    limit: String(limit),
+  });
+  if (before) params.set("before", String(before));
+  return request<Message[]>(`/api/statuses/by-sender?${params}`);
+}
+

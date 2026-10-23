@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import type { Chat, WhatsAppConnectionState, SearchMessageResult } from "@/types";
+import type { StatusSenderSummary } from "@/hooks/useStatuses";
 import * as api from "@/lib/api";
 import {
   ChatsIcon,
@@ -54,6 +55,10 @@ interface ChatSidebarProps {
   onOpenSecuritySettings?: () => void;
   onSyncContacts?: () => void;
   isSyncingContacts?: boolean;
+  statusSenders?: StatusSenderSummary[];
+  selectedStatusSenderId?: string | null;
+  onSelectStatusSender?: (senderId: string) => void;
+  isLoadingStatusList?: boolean;
 }
 
 type ChatFilter = "all" | "unread" | "groups";
@@ -98,6 +103,10 @@ export default function ChatSidebar({
   onOpenSecuritySettings,
   onSyncContacts,
   isSyncingContacts = false,
+  statusSenders = [],
+  selectedStatusSenderId,
+  onSelectStatusSender,
+  isLoadingStatusList = false,
 }: ChatSidebarProps) {
   const [search, setSearch] = useState("");
   const [menuAnchor, setMenuAnchor] = useState<"header" | "rail" | null>(null);
@@ -210,6 +219,17 @@ export default function ChatSidebar({
         c.lastMessage?.toLowerCase().includes(q)
     );
   }, [activeChats, archivedChats, search, showArchived, isMessageSearch, chatFilter]);
+
+  const filteredStatusSenders = useMemo(() => {
+    if (!statusSenders || statusSenders.length === 0) return [];
+    if (!search.trim()) return statusSenders;
+    const q = search.trim().toLowerCase();
+    return statusSenders.filter(
+      (s) =>
+        s.senderName.toLowerCase().includes(q) ||
+        s.senderId.toLowerCase().includes(q)
+    );
+  }, [statusSenders, search]);
 
   function formatTimestamp(ts: number): string {
     if (!ts) return "";
@@ -598,7 +618,9 @@ export default function ChatSidebar({
               ref={searchInputRef}
               type="text"
               placeholder={
-                showArchived
+                activeTab === "status"
+                  ? "Cari kontak status..."
+                  : showArchived
                   ? "Search archived chats"
                   : "Search or start a new chat (% for messages)"
               }
@@ -702,7 +724,66 @@ export default function ChatSidebar({
             </div>
           )}
 
-          {isMessageSearch ? (
+          {activeTab === "status" ? (
+            isLoadingStatusList ? (
+              <div className="chat-list-empty">
+                <div className="spinner spinner-sm" style={{ margin: "0 auto 8px" }} />
+                <span>Memuat daftar status...</span>
+              </div>
+            ) : filteredStatusSenders.length === 0 ? (
+              <div className="chat-list-empty">
+                {search.trim() ? (
+                  <div>
+                    <p style={{ fontWeight: 500 }}>Tidak ada kontak yang cocok</p>
+                    <p style={{ fontSize: "0.8rem", color: "var(--text-tertiary)", marginTop: "4px" }}>
+                      Tidak ditemukan status dari &quot;{search.trim()}&quot;
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p style={{ fontWeight: 500 }}>Tidak ada pembaruan status</p>
+                    <p style={{ fontSize: "0.8rem", color: "var(--text-tertiary)", marginTop: "4px" }}>
+                      Pembaruan status dari kontak Anda akan muncul di sini.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              filteredStatusSenders.map((sender) => {
+                const isSelected = selectedStatusSenderId === sender.senderId;
+                return (
+                  <div
+                    key={sender.senderId}
+                    className={`chat-item ${isSelected ? "active" : ""}`}
+                    onClick={() => onSelectStatusSender?.(sender.senderId)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") onSelectStatusSender?.(sender.senderId);
+                    }}
+                  >
+                    <div className="status-avatar-wrapper">
+                      {renderAvatar(sender.senderName, false, undefined, sender.senderId)}
+                      <span className="status-avatar-ring" />
+                    </div>
+                    <div className="chat-info">
+                      <div className="chat-info-top">
+                        <span className="chat-name">{sender.senderName}</span>
+                        <span className="chat-timestamp">
+                          {formatTimestamp(sender.latestTimestamp)}
+                        </span>
+                      </div>
+                      <div className="chat-info-bottom">
+                        <span className="chat-last-message">
+                          {sender.statusCount} pembaruan status
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )
+          ) : isMessageSearch ? (
             /* ─── Message Search Mode Rendering ─── */
             !messageSearchQuery ? (
               <div className="search-guide-box">

@@ -986,6 +986,66 @@ class Store {
   }
 
   /**
+   * Retrieves all status messages for a single sender across time,
+   * sorted ascending by timestamp (chronological).
+   */
+  async getStatusesBySender(
+    senderId: string,
+    limit = 50,
+    before?: number
+  ): Promise<Message[]> {
+    try {
+      const whereClause: {
+        chatId: string;
+        senderId: string;
+        timestamp?: { lt: bigint };
+      } = {
+        chatId: "status@broadcast",
+        senderId,
+      };
+
+      if (before) {
+        whereClause.timestamp = { lt: BigInt(before) };
+      }
+
+      const dbMessages = await prisma.message.findMany({
+        where: whereClause,
+        orderBy: { timestamp: "desc" },
+        take: limit,
+      });
+
+      return dbMessages
+        .filter(
+          (m) =>
+            m.type !== "unknown" &&
+            m.type !== "reaction" &&
+            m.text !== "Unsupported message" &&
+            !m.text?.startsWith("[Event:")
+        )
+        .reverse()
+        .map((m) => ({
+          id: m.id,
+          chatId: m.chatId,
+          senderId: m.senderId,
+          senderName: this.resolveMessageSenderName(m.senderId, m.pushName || undefined),
+          timestamp: Number(m.timestamp),
+          type: m.type as MessageType,
+          text: m.text || undefined,
+          media: m.media as Message["media"],
+          quotedMessageId: m.quotedMessageId || undefined,
+          quotedMessage: this.formatQuotedMessage(m.quotedMessage, m.chatId),
+          fromMe: m.fromMe,
+          status: (m.status || "pending") as MessageStatus,
+          pushName: m.pushName || undefined,
+          isStarred: m.isStarred,
+        }));
+    } catch (err) {
+      logger.error({ err, senderId }, "Failed to get statuses by sender");
+      return [];
+    }
+  }
+
+  /**
    * Deletes all status messages (and their media) posted by a single sender.
    * Returns the number of deleted statuses.
    */

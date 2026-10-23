@@ -191,7 +191,7 @@ export default function MessageBubble({
       case "document":
         return renderDocument();
       case "sticker":
-        return <div className="message-text">🏷️ Sticker</div>;
+        return renderSticker();
       case "location":
         return <div className="message-text">📍 {message.text || "Location"}</div>;
       case "contact":
@@ -291,6 +291,36 @@ export default function MessageBubble({
     );
   }
 
+  function renderSticker() {
+    const mediaUrl = `/api/media/${message.id}`;
+    const isAnimated = message.media?.mimetype === "image/webp";
+
+    return (
+      <div className="message-sticker">
+        {!imageLoaded && !imageError && (
+          <div className="sticker-placeholder">
+            <div className="spinner spinner-sm" />
+          </div>
+        )}
+        {imageError ? (
+          <div className="sticker-placeholder sticker-error">
+            <span>🏷️</span>
+            <span style={{ fontSize: "0.75rem" }}>Sticker</span>
+          </div>
+        ) : (
+          <img
+            src={mediaUrl}
+            alt={isAnimated ? "Animated sticker" : "Sticker"}
+            className={`sticker-image ${imageLoaded ? "loaded" : "loading"}`}
+            onLoad={() => setImageLoaded(true)}
+            onError={() => setImageError(true)}
+            loading="lazy"
+          />
+        )}
+      </div>
+    );
+  }
+
   function renderDocument() {
     const mediaUrl = `/api/media/${message.id}`;
     const fileName = message.media?.fileName || "Document";
@@ -349,7 +379,7 @@ export default function MessageBubble({
             )}
           </div>
         )}
-        <div className={`message-bubble ${message.type === "text" ? "inline-footer" : ""}`}>
+        <div className={`message-bubble ${message.type === "text" ? "inline-footer" : ""} ${message.type === "sticker" ? "sticker-bubble" : ""}`}>
           {showSender && !message.fromMe && (
             <div className="message-sender">
               {getMessageSenderDisplay()}

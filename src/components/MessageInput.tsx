@@ -114,6 +114,43 @@ export default function MessageInput({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
   }, []);
 
+  /**
+   * Handles Ctrl+V paste events to attach images directly from clipboard.
+   * If clipboard contains an image, it becomes the file attachment with a preview.
+   */
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const blob = item.getAsFile();
+          if (!blob) continue;
+
+          // Create a File with a descriptive name
+          const ext = blob.type.split("/")[1] || "png";
+          const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+          const file = new File([blob], `clipboard-${timestamp}.${ext}`, {
+            type: blob.type,
+          });
+
+          // Revoke previous preview URL if any
+          if (previewUrl) {
+            URL.revokeObjectURL(previewUrl);
+          }
+
+          setAttachment(file);
+          setPreviewUrl(URL.createObjectURL(file));
+          textareaRef.current?.focus();
+          return;
+        }
+      }
+    },
+    [previewUrl]
+  );
+
   const handleSelectEmoji = useCallback((emoji: string) => {
     const textarea = textareaRef.current;
     if (!textarea) {
@@ -257,6 +294,7 @@ export default function MessageInput({
               notifyTyping();
             }}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             rows={1}
             disabled={disabled}
           />

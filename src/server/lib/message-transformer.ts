@@ -143,6 +143,9 @@ function extractText(content: proto.IMessage | undefined): string | undefined {
       return "🚫 This message was deleted";
     }
   }
+  if (content.stickerMessage) {
+    return "🏷️ Sticker";
+  }
 
   return undefined;
 }

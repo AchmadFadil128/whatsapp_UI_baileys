@@ -5,6 +5,14 @@ import * as api from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import type { Message, MessageEvent } from "@/types";
 
+/** Summary for a single status sender, used in the sidebar list. */
+export interface StatusSenderSummary {
+  senderId: string;
+  senderName: string;
+  statusCount: number;
+  latestTimestamp: number;
+}
+
 const PAGE_SIZE = 50;
 
 /** Merges messages by id and keeps them sorted ascending by timestamp. */
@@ -17,119 +25,211 @@ function mergeStatuses(current: Message[], incoming: Message[]): Message[] {
 
 /**
  * Hook to fetch and listen for status broadcast messages.
- * Supports pagination ("load more"), deleting individual statuses,
- * deleting all statuses of one contact, and clearing all.
+ * 
+ * Lazy loading approach:
+ * - Initially fetches only a lightweight list of senders (for sidebar).
+ * - Full statuses for a sender are loaded on-demand when selected.
  */
 export function useStatuses() {
-  const [statuses, setStatuses] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [senderList, setSenderList] = useState<StatusSenderSummary[]>([]);
+  const [selectedSenderId, setSelectedSenderId] = useState<string | null>(null);
+  const [senderStatuses, setSenderStatuses] = useState<Message[]>([]);
+  const [isLoadingList, setIsLoadingList] = useState(true);
+  const [isLoadingSender, setIsLoadingSender] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const statusesRef = useRef<Message[]>([]);
+  const senderStatusesRef = useRef<Message[]>([]);
 
   useEffect(() => {
-    statusesRef.current = statuses;
-  }, [statuses]);
+    senderStatusesRef.current = senderStatuses;
+  }, [senderStatuses]);
 
-  const fetchStatuses = useCallback(async () => {
-    setIsLoading(true);
+  /**
+   * Fetches the lightweight sender summary list for the sidebar.
+   * Uses a single API call to get the most recent statuses, then groups by sender.
+   */
+  const fetchSenderList = useCallback(async () => {
+    setIsLoadingList(true);
     try {
-      const res = await api.getStatuses(PAGE_SIZE);
+      const res = await api.getStatusSenderList();
       if (res.success && res.data) {
-        setStatuses(res.data);
+        setSenderList(res.data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch status senders:", err);
+    } finally {
+      setIsLoadingList(false);
+    }
+  }, []);
+
+  /**
+   * Fetches all statuses for a specific sender (lazy load on click).
+   */
+  const fetchSenderStatuses = useCallback(async (senderId: string) => {
+    setSelectedSenderId(senderId);
+    setIsLoadingSender(true);
+    setSenderStatuses([]);
+    setHasMore(false);
+    try {
+      const res = await api.getStatusesBySender(senderId, PAGE_SIZE);
+      if (res.success && res.data) {
+        setSenderStatuses(res.data);
         setHasMore(res.data.length >= PAGE_SIZE);
       }
     } catch (err) {
-      console.error("Failed to fetch statuses:", err);
+      console.error("Failed to fetch sender statuses:", err);
     } finally {
-      setIsLoading(false);
+      setIsLoadingSender(false);
     }
   }, []);
 
+  /**
+   * Loads more statuses for the currently selected sender (pagination).
+   */
   const loadMore = useCallback(async () => {
-    const current = statusesRef.current;
-    if (current.length === 0) return;
+    const current = senderStatusesRef.current;
+    if (current.length === 0 || !selectedSenderId) return;
 
-    const oldest = current.reduce((min, s) => (s.timestamp < min ? s.timestamp : min), current[0].timestamp);
+    const oldest = current.reduce(
+      (min, s) => (s.timestamp < min ? s.timestamp : min),
+      current[0].timestamp
+    );
 
     setIsLoadingMore(true);
     try {
-      const res = await api.getStatuses(PAGE_SIZE, oldest);
+      const res = await api.getStatusesBySender(selectedSenderId, PAGE_SIZE, oldest);
       if (res.success && res.data) {
-        const page = res.data;
-        setStatuses((prev) => mergeStatuses(prev, page));
-        setHasMore(page.length >= PAGE_SIZE);
+        setSenderStatuses((prev) => mergeStatuses(prev, res.data!));
+        setHasMore(res.data.length >= PAGE_SIZE);
       }
     } catch (err) {
-      console.error("Failed to load more statuses:", err);
+      console.error("Failed to load more sender statuses:", err);
     } finally {
       setIsLoadingMore(false);
     }
+  }, [selectedSenderId]);
+
+  /**
+   * Clears selection and goes back to the sender list.
+   */
+  const clearSelection = useCallback(() => {
+    setSelectedSenderId(null);
+    setSenderStatuses([]);
+    setHasMore(false);
   }, []);
 
+  // Listen for new status broadcasts and update sender list
   useEffect(() => {
     const socket = getSocket();
 
     function onMessageReceived(data: MessageEvent) {
       if (data.message.chatId === "status@broadcast") {
-        setStatuses((prev) => {
-          // Avoid duplicates
-          if (prev.some((s) => s.id === data.message.id)) return prev;
-          return [...prev, data.message];
+        // Update the sender list with the new status
+        setSenderList((prev) => {
+          const existing = prev.find((s) => s.senderId === data.message.senderId);
+          if (existing) {
+            return prev.map((s) =>
+              s.senderId === data.message.senderId
+                ? {
+                    ...s,
+                    statusCount: s.statusCount + 1,
+                    latestTimestamp: Math.max(s.latestTimestamp, data.message.timestamp),
+                    senderName: data.message.pushName || s.senderName,
+                  }
+                : s
+            ).sort((a, b) => b.latestTimestamp - a.latestTimestamp);
+          }
+          return [
+            {
+              senderId: data.message.senderId,
+              senderName: data.message.pushName || data.message.senderId.split("@")[0],
+              statusCount: 1,
+              latestTimestamp: data.message.timestamp,
+            },
+            ...prev,
+          ];
         });
+
+        // If this sender is currently selected, append the new status
+        if (data.message.senderId === selectedSenderId) {
+          setSenderStatuses((prev) => {
+            if (prev.some((s) => s.id === data.message.id)) return prev;
+            return [...prev, data.message];
+          });
+        }
       }
     }
 
     socket.on("message:received", onMessageReceived);
-    fetchStatuses();
+    fetchSenderList();
 
     return () => {
       socket.off("message:received", onMessageReceived);
     };
-  }, [fetchStatuses]);
+  }, [fetchSenderList, selectedSenderId]);
 
   const deleteStatus = useCallback(async (id: string) => {
-    setStatuses((prev) => prev.filter((s) => s.id !== id));
+    setSenderStatuses((prev) => prev.filter((s) => s.id !== id));
+    // Update sender list counts
+    setSenderList((prev) =>
+      prev
+        .map((s) => {
+          const match = senderStatusesRef.current.find((st) => st.id === id);
+          if (match && match.senderId === s.senderId) {
+            return { ...s, statusCount: Math.max(0, s.statusCount - 1) };
+          }
+          return s;
+        })
+        .filter((s) => s.statusCount > 0)
+    );
     try {
       const res = await api.deleteStatus(id);
       if (!res.success) throw new Error(res.error || "Delete failed");
     } catch (err) {
       console.error("Failed to delete status:", err);
-      // Refetch to restore consistency
-      fetchStatuses();
+      fetchSenderList();
     }
-  }, [fetchStatuses]);
+  }, [fetchSenderList]);
 
   const deleteStatusesBySender = useCallback(async (senderId: string) => {
-    setStatuses((prev) => prev.filter((s) => s.senderId !== senderId));
+    setSenderStatuses([]);
+    setSenderList((prev) => prev.filter((s) => s.senderId !== senderId));
+    setSelectedSenderId(null);
     try {
       const res = await api.deleteStatusesBySender(senderId);
       if (!res.success) throw new Error(res.error || "Delete failed");
     } catch (err) {
       console.error("Failed to delete contact statuses:", err);
-      fetchStatuses();
+      fetchSenderList();
     }
-  }, [fetchStatuses]);
+  }, [fetchSenderList]);
 
   const clearAllStatuses = useCallback(async () => {
-    setStatuses([]);
+    setSenderList([]);
+    setSenderStatuses([]);
+    setSelectedSenderId(null);
     setHasMore(false);
     try {
       const res = await api.clearAllStatuses();
       if (!res.success) throw new Error(res.error || "Clear failed");
     } catch (err) {
       console.error("Failed to clear statuses:", err);
-      fetchStatuses();
+      fetchSenderList();
     }
-  }, [fetchStatuses]);
+  }, [fetchSenderList]);
 
   return {
-    statuses,
-    isLoading,
+    senderList,
+    selectedSenderId,
+    senderStatuses,
+    isLoadingList,
+    isLoadingSender,
     isLoadingMore,
     hasMore,
+    fetchSenderStatuses,
     loadMore,
-    refetch: fetchStatuses,
+    clearSelection,
+    refetchSenderList: fetchSenderList,
     deleteStatus,
     deleteStatusesBySender,
     clearAllStatuses,
