@@ -23,6 +23,7 @@ import {
   EyeOffIcon,
   PinIcon,
   TrashIcon,
+  SyncIcon,
 } from "@/components/Icons";
 
 interface ChatSidebarProps {
@@ -51,6 +52,8 @@ interface ChatSidebarProps {
   privacyBlur?: boolean;
   onTogglePrivacyBlur?: () => void;
   onOpenSecuritySettings?: () => void;
+  onSyncContacts?: () => void;
+  isSyncingContacts?: boolean;
 }
 
 type ChatFilter = "all" | "unread" | "groups";
@@ -93,6 +96,8 @@ export default function ChatSidebar({
   privacyBlur = false,
   onTogglePrivacyBlur,
   onOpenSecuritySettings,
+  onSyncContacts,
+  isSyncingContacts = false,
 }: ChatSidebarProps) {
   const [search, setSearch] = useState("");
   const [menuAnchor, setMenuAnchor] = useState<"header" | "rail" | null>(null);
@@ -367,6 +372,18 @@ export default function ChatSidebar({
             Security & 2FA Settings
           </button>
         )}
+        {onSyncContacts && (
+          <button
+            className="dropdown-item"
+            onClick={() => {
+              setMenuAnchor(null);
+              onSyncContacts();
+            }}
+            disabled={isSyncingContacts}
+          >
+            {isSyncingContacts ? "Menyinkronkan kontak..." : "Sinkronkan Nama Kontak"}
+          </button>
+        )}
         <div className="dropdown-divider" />
         <button
           className="dropdown-item"
@@ -496,6 +513,18 @@ export default function ChatSidebar({
                 style={privacyBlur ? { color: "var(--accent-primary)" } : undefined}
               >
                 {privacyBlur ? <EyeOffIcon size={22} /> : <EyeIcon size={22} />}
+              </button>
+            )}
+            {onSyncContacts && (
+              <button
+                id="sidebar-sync-contacts-btn"
+                className={`icon-btn ${isSyncingContacts ? "sync-spinning" : ""}`}
+                title={isSyncingContacts ? "Menyinkronkan kontak..." : "Sinkronkan Nama Kontak"}
+                aria-label="Sync contact names"
+                onClick={onSyncContacts}
+                disabled={isSyncingContacts}
+              >
+                <SyncIcon size={20} />
               </button>
             )}
             <button

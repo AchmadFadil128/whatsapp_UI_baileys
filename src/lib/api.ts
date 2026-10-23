@@ -196,6 +196,13 @@ export async function getContacts() {
   return request<Contact[]>("/api/contacts");
 }
 
+export async function syncContacts() {
+  return request<{ syncedChats: number; totalLidMappings: number; newlyMapped: number }>(
+    "/api/whatsapp/sync-contacts",
+    { method: "POST" }
+  );
+}
+
 export async function getContactStatus(jid: string) {
   return request<{ status: string | null }>(`/api/contacts/${encodeURIComponent(jid)}/status`);
 }

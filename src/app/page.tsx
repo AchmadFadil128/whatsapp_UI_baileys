@@ -18,7 +18,7 @@ import ChatWindow from "@/components/ChatWindow";
 import StatusView from "@/components/StatusView";
 import NotificationToastContainer from "@/components/NotificationToast";
 import SecuritySettingsModal from "@/components/SecuritySettingsModal";
-import { EyeIcon, EyeOffIcon } from "@/components/Icons";
+import { EyeIcon, EyeOffIcon, SyncIcon } from "@/components/Icons";
 
 /**
  * Main page — orchestrates the entire WhatsApp client UI.
@@ -43,6 +43,7 @@ export default function Home() {
 
   const {
     chats,
+    refetch: refetchChats,
     markRead,
     toggleArchive,
     toggleMute,
@@ -66,7 +67,7 @@ export default function Home() {
   } = useMessages(activeChatId, targetMessage?.timestamp);
 
   const { aliases, setAlias } = useChatAliases();
-  const { contactsMap } = useContacts();
+  const { contactsMap, fetchContacts } = useContacts();
   const {
     statuses,
     isLoading: isLoadingStatuses,
@@ -105,6 +106,33 @@ export default function Home() {
   });
 
   const [privacyBlurToast, setPrivacyBlurToast] = useState<string | null>(null);
+  const [isSyncingContacts, setIsSyncingContacts] = useState(false);
+  const [syncToast, setSyncToast] = useState<string | null>(null);
+
+  const handleSyncContacts = useCallback(async () => {
+    if (isSyncingContacts) return;
+    setIsSyncingContacts(true);
+    setSyncToast("Sedang menyinkronkan nama kontak...");
+    try {
+      const res = await api.syncContacts();
+      if (res.success && res.data) {
+        const { syncedChats, newlyMapped } = res.data;
+        await Promise.all([refetchChats(), fetchContacts()]);
+        setSyncToast(
+          `Sinkronisasi selesai: ${syncedChats} nama chat & ${newlyMapped} pemetaan diperbarui`
+        );
+      } else {
+        await Promise.all([refetchChats(), fetchContacts()]);
+        setSyncToast("Nama kontak dan chat berhasil diperbarui");
+      }
+    } catch (err: any) {
+      console.error("Gagal menyinkronkan kontak:", err);
+      setSyncToast("Gagal menyinkronkan kontak");
+    } finally {
+      setIsSyncingContacts(false);
+      setTimeout(() => setSyncToast(null), 3000);
+    }
+  }, [isSyncingContacts, refetchChats, fetchContacts]);
 
   const handleTogglePrivacyBlur = useCallback(() => {
     setPrivacyBlur((prev) => {
@@ -317,6 +345,14 @@ export default function Home() {
         </div>
       )}
 
+      {/* Sync Feedback Toast */}
+      {syncToast && (
+        <div className="sync-feedback-toast" role="status">
+          <SyncIcon size={18} className={isSyncingContacts ? "sync-spinning" : ""} />
+          <span>{syncToast}</span>
+        </div>
+      )}
+
       {/* In-app Toast Notifications */}
       <NotificationToastContainer
         toasts={toasts}
@@ -356,6 +392,8 @@ export default function Home() {
         onToggleAutoRead={handleToggleAutoRead}
         privacyBlur={privacyBlur}
         onTogglePrivacyBlur={handleTogglePrivacyBlur}
+        onSyncContacts={handleSyncContacts}
+        isSyncingContacts={isSyncingContacts}
         onToggleArchive={toggleArchive}
         onToggleMute={toggleMute}
         onTogglePin={togglePin}

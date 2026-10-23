@@ -21,6 +21,11 @@ export async function POST(): Promise<
       currentStore.pnToLid = new Map<string, string>();
     }
 
+    // Refresh store contacts from DB to ensure latest contact names
+    if (typeof currentStore.reloadContactsFromDb === "function") {
+      await currentStore.reloadContactsFromDb();
+    }
+
     // Load any existing mappings from database
     try {
       const savedSetting = await prisma.setting.findUnique({
@@ -200,11 +205,16 @@ export async function POST(): Promise<
               data: { name: resolved },
             });
             syncedChats++;
+            ws?.emit?.("chat:updated", { chat });
           } catch {
             // ignore
           }
         }
       }
+    }
+
+    if (syncedChats > 0 || newlyMapped > 0) {
+      ws?.emit?.("history:synced", { progress: 100, isLatest: true });
     }
 
     return NextResponse.json({

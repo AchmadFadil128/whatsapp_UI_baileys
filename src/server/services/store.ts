@@ -1125,6 +1125,19 @@ class Store {
     return Array.from(this.contacts.values());
   }
 
+  async reloadContactsFromDb(): Promise<void> {
+    const dbContacts = await prisma.contact.findMany();
+    for (const c of dbContacts) {
+      this.contacts.set(c.id, {
+        id: c.id,
+        name: c.name || undefined,
+        pushName: c.pushName || undefined,
+        verifiedName: c.verifiedName || undefined,
+        profilePicUrl: c.profilePicUrl || undefined,
+      });
+    }
+  }
+
   getContactName(jid: string): string | undefined {
     const resolved = this.resolveChatName(jid);
     return resolved !== jid.split("@")[0] ? resolved : undefined;

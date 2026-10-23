@@ -3000,6 +3000,46 @@ video.status-detail-media {
   }
 }
 
+/* Sync spinning animation & Feedback Toast */
+@keyframes spin-sync {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sync-spinning svg {
+  animation: spin-sync 0.8s linear infinite;
+  color: var(--accent-primary) !important;
+}
+
+.sync-feedback-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-dropdown);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  padding: 10px 20px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  z-index: 9999;
+  animation: blur-toast-in 0.2s ease-out;
+  pointer-events: none;
+}
+
+.sync-feedback-toast svg {
+  color: var(--accent-primary);
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Better Auth & Two-Factor Authentication (2FA) Styles
    ═══════════════════════════════════════════════════════════════════ */
