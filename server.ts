@@ -12,6 +12,7 @@ import { whatsappService } from "./src/server/services/whatsapp.service.js";
 import { createLogger } from "./src/server/lib/logger.js";
 import { migrateJsonStoreIfNeeded } from "./src/server/db/migrate-json.js";
 import { ensureAdminUser } from "./src/server/db/seed-user.js";
+import { failoverManager } from "./src/server/db/failover.js";
 
 const logger = createLogger("server");
 
@@ -23,6 +24,11 @@ const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 app.prepare().then(async () => {
+  // Start database failover manager & health check
+  await failoverManager.start().catch((err) => {
+    logger.error(err, "Error starting failover manager");
+  });
+
   // Ensure the single admin user from .env is seeded / synchronized in PostgreSQL
   await ensureAdminUser().catch((err) => {
     logger.error(err, "Error ensuring single admin user");

@@ -6,23 +6,28 @@ services:
     env_file:
       - .env.dockhand
     depends_on:
-      db:
+      db-temp:
         condition: service_healthy
     volumes:
       - whatsapp_data:/app/data
 
-  db:
+  # Database Temporary di VM 1 (Local Failover DB)
+  db-temp:
     image: postgres:15-alpine
     env_file:
       - .env.dockhand
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_temp_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 150M
 
 volumes:
   whatsapp_data:
-  postgres_data:
+  postgres_temp_data:

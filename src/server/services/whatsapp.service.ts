@@ -27,6 +27,7 @@ import fs from "fs";
 import NodeCache from "@cacheable/node-cache";
 import { createLogger } from "@/server/lib/logger";
 import { store } from "@/server/services/store";
+import { failoverManager } from "@/server/db/client";
 import {
   transformMessage,
   normalizeJid,
@@ -602,8 +603,8 @@ class WhatsAppService extends EventEmitter {
           store.updateChatLastMessage(transformed.chatId, transformed);
           this.emit("message:sent", { message: transformed });
 
-          // Cache the media buffer to database
-          if (sent.key?.id) {
+          // Cache the media buffer to database (skipped during failover)
+          if (sent.key?.id && !failoverManager.isFailover()) {
             store.saveMedia(sent.key.id, mimetype, buffer);
           }
 
@@ -1371,8 +1372,8 @@ class WhatsAppService extends EventEmitter {
       store.addMessage(message);
       store.updateChatLastMessage(message.chatId, message, type === "notify");
 
-      // Preemptively cache sticker media so it survives restarts
-      if (message.type === "sticker") {
+      // Preemptively cache sticker media so it survives restarts (skipped during failover)
+      if (message.type === "sticker" && !failoverManager.isFailover()) {
         this.downloadMedia(message.id).catch((err) => {
           logger.warn({ err, messageId: message.id }, "Failed to pre-cache sticker media");
         });
@@ -1757,7 +1758,7 @@ class WhatsAppService extends EventEmitter {
       logger.error({ err, messageId: message.id }, "Failed to persist status");
     });
 
-    if (!message.media) return;
+    if (!message.media || failoverManager.isFailover()) return;
 
     // Retry downloading media up to 3 times (immediate, 3s, 10s)
     const tryDownload = async (attempt: number) => {

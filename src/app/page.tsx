@@ -19,6 +19,7 @@ import StatusView from "@/components/StatusView";
 import NotificationToastContainer from "@/components/NotificationToast";
 import SecuritySettingsModal from "@/components/SecuritySettingsModal";
 import { EyeIcon, EyeOffIcon, SyncIcon } from "@/components/Icons";
+import type { DatabaseFailoverState, DatabaseFailoverEvent } from "@/types";
 
 /**
  * Main page — orchestrates the entire WhatsApp client UI.
@@ -27,6 +28,21 @@ import { EyeIcon, EyeOffIcon, SyncIcon } from "@/components/Icons";
  */
 export default function Home() {
   useSocket();
+
+  const [failoverState, setFailoverState] = useState<DatabaseFailoverState>("PRIMARY");
+
+  useEffect(() => {
+    const socket = getSocket();
+    function onFailoverUpdate(data: DatabaseFailoverEvent) {
+      if (data?.state) {
+        setFailoverState(data.state);
+      }
+    }
+    socket.on("db:failover", onFailoverUpdate);
+    return () => {
+      socket.off("db:failover", onFailoverUpdate);
+    };
+  }, []);
 
   const {
     connectionState,
@@ -323,6 +339,27 @@ export default function Home() {
   if (showQRScreen) {
     return (
       <>
+        {failoverState === "FAILOVER" && (
+          <div
+            style={{
+              backgroundColor: "#7c4a03",
+              color: "#ffd279",
+              padding: "8px 16px",
+              fontSize: "12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              borderBottom: "1px solid #925805",
+              zIndex: 100,
+            }}
+          >
+            <span>⚠️</span>
+            <span>
+              <strong>Mode Cadangan Aktif:</strong> Koneksi DB Utama terputus. Menggunakan database sementara.
+            </span>
+          </div>
+        )}
         <QRScreen
           connectionState={connectionState}
           qrCode={qrCode}
@@ -345,6 +382,52 @@ export default function Home() {
 
   return (
     <div className={`app-container ${privacyBlur ? "privacy-blur-active" : ""}`}>
+      {/* Database Failover Alert Banner */}
+      {failoverState === "FAILOVER" && (
+        <div
+          style={{
+            backgroundColor: "#7c4a03",
+            color: "#ffd279",
+            padding: "8px 16px",
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            borderBottom: "1px solid #925805",
+            zIndex: 100,
+            width: "100%",
+          }}
+        >
+          <span>⚠️</span>
+          <span>
+            <strong>Mode Cadangan Aktif:</strong> Koneksi DB Utama terputus. Pesan baru disimpan di DB sementara (media tidak diunduh).
+          </span>
+        </div>
+      )}
+      {failoverState === "SYNCING" && (
+        <div
+          style={{
+            backgroundColor: "#073f4e",
+            color: "#53bdeb",
+            padding: "8px 16px",
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            borderBottom: "1px solid #095970",
+            zIndex: 100,
+            width: "100%",
+          }}
+        >
+          <span>🔄</span>
+          <span>
+            <strong>Sinkronisasi Data:</strong> Mengirim data baru dari DB Sementara ke DB Utama...
+          </span>
+        </div>
+      )}
+
       {/* Privacy Blur Toast Notification */}
       {privacyBlurToast && (
         <div className="privacy-blur-toast" role="status">

@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { prisma } from "@/server/db/client";
+import { prisma, failoverManager } from "@/server/db/client";
 import type { Chat, Message, Contact, MessageStatus, MessageType, QuotedMessage, SearchMessageResult } from "@/types";
 import { createLogger } from "@/server/lib/logger";
 import { resolveContactDisplayName, formatPhoneNumber } from "@/server/lib/contact-resolver";
@@ -1246,6 +1246,10 @@ class Store {
     fileName?: string,
     fileSize?: number
   ): Promise<void> {
+    if (failoverManager.isFailover()) {
+      logger.info({ messageId }, "Skipping media binary save during failover (metadata only)");
+      return;
+    }
     try {
       const bytesData = new Uint8Array(buffer);
       await prisma.media.upsert({

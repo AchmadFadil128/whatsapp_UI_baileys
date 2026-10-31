@@ -1,33 +1,27 @@
-import { prisma } from "./client";
+import type { PrismaClient } from "@prisma/client";
+import { failoverManager } from "./failover";
 import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { createLogger } from "../lib/logger";
 
 const logger = createLogger("auth-seed");
 
-/**
- * Ensures the single administrator user from environment variables (.env)
- * exists in the database.
- *
- * Supports updating AUTH_EMAIL and AUTH_PASSWORD without resetting 2FA
- * enrollment or backup codes.
- */
-export async function ensureAdminUser(): Promise<void> {
-  const email = (process.env.AUTH_EMAIL || "admin@whatsapp.local").trim().toLowerCase();
-  const password = process.env.AUTH_PASSWORD || "admin123456";
-  const name = process.env.AUTH_NAME || "Admin";
-
+async function seedUserToClient(
+  client: PrismaClient,
+  dbLabel: string,
+  email: string,
+  password: string,
+  name: string
+): Promise<void> {
   try {
-    // Check if any user already exists (since this is a single-user system)
-    let user = await prisma.user.findFirst({
+    let user = await client.user.findFirst({
       include: { accounts: true },
     });
 
     if (!user) {
-      // Create the single admin user
       const userId = crypto.randomUUID();
       const hashedPassword = await hashPassword(password);
 
-      user = await prisma.user.create({
+      user = await client.user.create({
         data: {
           id: userId,
           email,
@@ -45,16 +39,15 @@ export async function ensureAdminUser(): Promise<void> {
         include: { accounts: true },
       });
 
-      logger.info({ email: user.email }, "Single admin user created from environment variables");
+      logger.info({ email: user.email, db: dbLabel }, "Admin user created in database");
       return;
     }
 
-    // Single-user mode: synchronize email and name if changed in .env
     const needsEmailUpdate = user.email !== email;
     const needsNameUpdate = user.name !== name;
 
     if (needsEmailUpdate || needsNameUpdate) {
-      user = await prisma.user.update({
+      user = await client.user.update({
         where: { id: user.id },
         data: {
           email,
@@ -62,14 +55,13 @@ export async function ensureAdminUser(): Promise<void> {
         },
         include: { accounts: true },
       });
-      logger.info({ email }, "Admin user profile updated from environment variables");
+      logger.info({ email, db: dbLabel }, "Admin user profile synchronized in database");
     }
 
-    // Synchronize password if changed in .env
     const credentialAccount = user.accounts.find((a) => a.providerId === "credential");
     if (!credentialAccount) {
       const hashedPassword = await hashPassword(password);
-      await prisma.account.create({
+      await client.account.create({
         data: {
           id: crypto.randomUUID(),
           userId: user.id,
@@ -78,7 +70,7 @@ export async function ensureAdminUser(): Promise<void> {
           password: hashedPassword,
         },
       });
-      logger.info("Created credential account for admin user");
+      logger.info({ db: dbLabel }, "Created credential account for admin user");
     } else if (credentialAccount.password) {
       const passwordMatches = await verifyPassword({
         password,
@@ -87,14 +79,32 @@ export async function ensureAdminUser(): Promise<void> {
 
       if (!passwordMatches) {
         const newHashedPassword = await hashPassword(password);
-        await prisma.account.update({
+        await client.account.update({
           where: { id: credentialAccount.id },
           data: { password: newHashedPassword },
         });
-        logger.info("Admin user password updated from environment variables");
+        logger.info({ db: dbLabel }, "Admin user password updated in database");
       }
     }
   } catch (err) {
-    logger.error(err, "Failed to ensure single admin user from environment variables");
+    logger.warn({ err, db: dbLabel }, "Could not seed admin user to database");
+  }
+}
+
+/**
+ * Ensures the administrator user exists in both Primary DB and Temporary DB
+ * so authentication succeeds regardless of failover state.
+ */
+export async function ensureAdminUser(): Promise<void> {
+  const email = (process.env.AUTH_EMAIL || "admin@whatsapp.local").trim().toLowerCase();
+  const password = process.env.AUTH_PASSWORD || "admin123456";
+  const name = process.env.AUTH_NAME || "Admin";
+
+  const primaryDb = failoverManager.getPrimaryDb();
+  await seedUserToClient(primaryDb, "primary", email, password, name);
+
+  if (process.env.DATABASE_URL_TEMP && process.env.DATABASE_URL_TEMP !== process.env.DATABASE_URL) {
+    const tempDb = failoverManager.getTempDb();
+    await seedUserToClient(tempDb, "temp", email, password, name);
   }
 }

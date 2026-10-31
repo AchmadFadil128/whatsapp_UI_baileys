@@ -120,6 +120,13 @@ export interface TypingEvent {
   isTyping: boolean;
 }
 
+// ─── Database Failover ──────────────────────────────────────────
+export type DatabaseFailoverState = "PRIMARY" | "FAILOVER" | "SYNCING";
+
+export interface DatabaseFailoverEvent {
+  state: DatabaseFailoverState;
+}
+
 // ─── Socket.IO Event Maps ─────────────────────────────────────────
 export interface ServerToClientEvents {
   "whatsapp:connection": (data: ConnectionUpdate) => void;
@@ -130,6 +137,7 @@ export interface ServerToClientEvents {
   "chat:deleted": (data: { chatId: string }) => void;
   "typing:updated": (data: TypingEvent) => void;
   "history:synced": (data: { count: number; syncType?: string }) => void;
+  "db:failover": (data: DatabaseFailoverEvent) => void;
 }
 
 export interface ClientToServerEvents {

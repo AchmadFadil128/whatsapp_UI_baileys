@@ -3,6 +3,7 @@ import type { Server as HTTPServer } from "http";
 import { createLogger } from "@/server/lib/logger";
 import { whatsappService } from "@/server/services/whatsapp.service";
 import { auth } from "@/lib/auth";
+import { failoverManager } from "@/server/db/client";
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
@@ -76,6 +77,11 @@ export function initSocketServer(
       pairingCode: currentPairing || undefined,
     });
 
+    // Send current failover state
+    socket.emit("db:failover", {
+      state: failoverManager.getState(),
+    });
+
     // ─── Client Events ──────────────────────────────────────
     socket.on("typing:start", (chatId: string) => {
       if (whatsappService.isConnected()) {
@@ -137,6 +143,10 @@ export function initSocketServer(
     io?.emit("whatsapp:connection", {
       state: whatsappService.getConnectionState(),
     });
+  });
+
+  failoverManager.onStateChange((state) => {
+    io?.emit("db:failover", { state });
   });
 
   logger.info("Socket.IO server initialized");
